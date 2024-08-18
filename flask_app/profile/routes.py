@@ -2,6 +2,10 @@ from flask import Blueprint, request, jsonify
 from database.db import profile_db, settings_db, pending_transactions_db
 from tinydb import Query
 from auth.utils import login_required
+import threading
+
+# Lock to handle TinyDB's single-threaded nature
+db_lock = threading.Lock()
 
 profile_bp = Blueprint('profile', __name__)
 
@@ -16,7 +20,8 @@ def get_profile(user_data):
     print('GET /profile called')  # Debug statement
     try:
         user_id = user_data.get('user_id')
-        profile = profile_db.get(Query().user_id == user_id)
+        with db_lock:
+            profile = profile_db.get(Query().user_id == user_id)
         if profile:
             print('Profile data retrieved:', profile)  # Debug statement
             return jsonify(profile)
@@ -36,7 +41,8 @@ def update_profile(user_data):
         profile_data = request.json
         profile_data['user_id'] = user_id  # Associate profile with the user
         print('Profile data received:', profile_data)  # Debug statement
-        profile_db.upsert(profile_data, Query().user_id == user_id)
+        with db_lock:
+            profile_db.upsert(profile_data, Query().user_id == user_id)
         print('Profile updated successfully')  # Debug statement
         return jsonify({"message": "Profile updated successfully"}), 200
     except Exception as e:
@@ -50,7 +56,8 @@ def get_settings(user_data):
     print('GET /settings called')  # Debug statement
     try:
         user_id = user_data.get('user_id')
-        settings = settings_db.get(Query().user_id == user_id)
+        with db_lock:
+            settings = settings_db.get(Query().user_id == user_id)
         if settings:
             print('Settings data retrieved:', settings)  # Debug statement
             return jsonify(settings)
@@ -78,7 +85,8 @@ def update_settings(user_data):
         settings_data = request.json
         settings_data['user_id'] = user_id  # Associate settings with the user
         print('Settings data received:', settings_data)  # Debug statement
-        settings_db.upsert(settings_data, Query().user_id == user_id)
+        with db_lock:
+            settings_db.upsert(settings_data, Query().user_id == user_id)
         print('Settings updated successfully')  # Debug statement
         return jsonify({"message": "Settings updated successfully"}), 200
     except Exception as e:
@@ -92,7 +100,8 @@ def get_pending_transactions(user_data):
     print('GET /pendingTransactions called')  # Debug statement
     try:
         user_id = user_data.get('user_id')
-        pending_transactions = pending_transactions_db.search(Query().user_id == user_id)
+        with db_lock:
+            pending_transactions = pending_transactions_db.search(Query().user_id == user_id)
         print('Pending transactions retrieved:', pending_transactions)  # Debug statement
         return jsonify(pending_transactions), 200
     except Exception as e:
@@ -108,7 +117,8 @@ def add_pending_transaction(user_data):
         transaction_data = request.json
         transaction_data['user_id'] = user_id  # Associate transaction with the user
         print('Pending transaction data received:', transaction_data)  # Debug statement
-        pending_transactions_db.insert(transaction_data)
+        with db_lock:
+            pending_transactions_db.insert(transaction_data)
         print('Pending transaction added successfully')  # Debug statement
         return jsonify({"message": "Pending transaction added successfully"}), 201
     except Exception as e:
@@ -121,10 +131,12 @@ def delete_pending_transaction(user_data, transaction_id):
     print(f'DELETE /pendingTransactions/{transaction_id} called')  # Debug statement
     try:
         user_id = user_data.get('user_id')
-        transaction = pending_transactions_db.get(Query().id == transaction_id)
+        with db_lock:
+            transaction = pending_transactions_db.get(Query().id == transaction_id)
         
         if transaction and transaction.get('user_id') == user_id:
-            pending_transactions_db.remove(Query().id == transaction_id)
+            with db_lock:
+                pending_transactions_db.remove(Query().id == transaction_id)
             print(f'Pending transaction with ID {transaction_id} deleted')  # Debug statement
             return jsonify({"message": "Pending transaction deleted successfully"}), 200
         else:
@@ -145,17 +157,20 @@ def save_pending_transaction(user_data):
         print('Pending transaction data received:', transaction_data)  # Debug statement
         
         # Check if the transaction already exists
-        Transaction = Query()
-        existing_transaction = pending_transactions_db.get(Transaction.id == transaction_data.get('id') and Transaction.user_id == user_id)
+        with db_lock:
+            Transaction = Query()
+            existing_transaction = pending_transactions_db.get(Transaction.id == transaction_data.get('id') and Transaction.user_id == user_id)
         
         if existing_transaction:
             # Update the existing transaction
-            pending_transactions_db.update(transaction_data, Transaction.id == transaction_data.get('id'))
+            with db_lock:
+                pending_transactions_db.update(transaction_data, Transaction.id == transaction_data.get('id'))
             print('Pending transaction updated successfully')  # Debug statement
             return jsonify({"message": "Pending transaction updated successfully"}), 200
         else:
             # Insert a new transaction
-            pending_transactions_db.insert(transaction_data)
+            with db_lock:
+                pending_transactions_db.insert(transaction_data)
             print('Pending transaction added successfully')  # Debug statement
             return jsonify({"message": "Pending transaction added successfully"}), 201
         

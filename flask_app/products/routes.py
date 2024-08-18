@@ -136,9 +136,9 @@ def increase_product_quantity(user_data, product_id):
             product = products_db.get(Product.id == product_id)
         
         if product:
-            new_quantity = product.get('quantityInStock', 0) + amount
+            new_quantity = product.get('quantity', 0) + amount
             with db_lock:
-                products_db.update({'quantityInStock': new_quantity}, Product.id == product_id)
+                products_db.update({'quantity': new_quantity}, Product.id == product_id)
             print(f'Product quantity increased to {new_quantity} for product ID {product_id}')  # Debug statement
             return jsonify({"message": "Product quantity increased", "new_quantity": new_quantity}), 200
         else:
@@ -169,14 +169,14 @@ def decrease_product_quantity(user_data, product_id):
             product = products_db.get(Product.id == product_id)
         
         if product:
-            current_quantity = product.get('quantityInStock', 0)
+            current_quantity = product.get('quantity', 0)
             if current_quantity < amount:
                 print(f'Insufficient stock for product ID {product_id}')  # Debug statement
                 return jsonify({"message": "Insufficient stock"}), 400
             
             new_quantity = current_quantity - amount
             with db_lock:
-                products_db.update({'quantityInStock': new_quantity}, Product.id == product_id)
+                products_db.update({'quantity': new_quantity}, Product.id == product_id)
             print(f'Product quantity decreased to {new_quantity} for product ID {product_id}')  # Debug statement
             return jsonify({"message": "Product quantity decreased", "new_quantity": new_quantity}), 200
         else:

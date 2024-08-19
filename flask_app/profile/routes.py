@@ -132,15 +132,16 @@ def delete_pending_transaction(user_data, transaction_id):
     try:
         user_id = user_data.get('user_id')
         with db_lock:
-            transaction = pending_transactions_db.get(Query().id == transaction_id)
+            transaction = pending_transactions_db.get(Query().id == int(transaction_id))
+            print(transaction)
         
         if transaction and transaction.get('user_id') == user_id:
             with db_lock:
-                pending_transactions_db.remove(Query().id == transaction_id)
+                pending_transactions_db.remove(Query().id == int(transaction_id))
             print(f'Pending transaction with ID {transaction_id} deleted')  # Debug statement
             return jsonify({"message": "Pending transaction deleted successfully"}), 200
         else:
-            return jsonify({"message": "Unauthorized to delete this transaction"}), 403
+            return jsonify({"message": "Unauthorized to delete this transaction"+user_id}), 403
     except Exception as e:
         print(f'Error deleting pending transaction with ID {transaction_id}:', str(e))  # Debug statement
         return jsonify({"message": "Error deleting pending transaction"}), 500

@@ -14,7 +14,7 @@ transactions_bp = Blueprint('transactions', __name__)
 def check_ownership(user_id, transaction_id):
     with db_lock:
         Transaction = Query()
-        transaction = transactions_db.get(Transaction.id == transaction_id)
+        transaction = transactions_db.get(Transaction.invoiceNumber == transaction_id)
     return transaction and transaction.get('user_id') == user_id
 
 @transactions_bp.route('/transactions', methods=['GET'])
@@ -107,7 +107,7 @@ def delete_transaction(user_data, transaction_id):
 
         with db_lock:
             Transaction = Query()
-            transactions_db.remove(Transaction.id == transaction_id)
+            transactions_db.remove(Transaction.invoiceNumber == transaction_id)
         print(f'Transaction with ID {transaction_id} deleted')  # Debug statement
         return jsonify({"message": "Transaction deleted successfully"}), 200
     except Exception as e:

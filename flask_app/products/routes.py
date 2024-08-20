@@ -63,6 +63,7 @@ def create_product(user_data):
         print('Product data received:', product_data)  # Debug statement
         product_data['id'] = str(uuid.uuid4())
         product_data['user_id'] = user_id  # Associate product with the user
+        product_data['reserved_quantity'] = 0
         with db_lock:
             products_db.insert(product_data)
         print('Product created with ID:', product_data['id'], "user ID", user_id)  # Debug statement
@@ -147,7 +148,6 @@ def increase_product_quantity(user_data, product_id):
     except Exception as e:
         print(f'Error increasing quantity for product ID {product_id}:', str(e))  # Debug statement
         return jsonify({"message": "Error increasing product quantity"}), 500
-
 @products_bp.route('/products/<string:product_id>/decrease', methods=['PATCH'])
 @login_required
 def decrease_product_quantity(user_data, product_id):

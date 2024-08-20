@@ -1,8 +1,9 @@
 from tinydb import TinyDB
 from config import Config
+from tinydb.storages import JSONStorage
 
 
-profile_db = TinyDB(Config.TINYDB_PROFILE)
+profile_db = TinyDB(Config.TINYDB_PROFILE, storage = JSONStorage)
 transactions_db = TinyDB(Config.TINYDB_TRANSACTIONS)
 products_db = TinyDB(Config.TINYDB_PRODUCTS)
 users_db = TinyDB(Config.TINYDB_USERS)

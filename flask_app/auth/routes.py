@@ -1,8 +1,6 @@
 from flask import Blueprint, request, jsonify
 from auth.models import User
-from auth.utils import authenticate, create_jwt, verify_jwt
 from auth.utils import authenticate, create_jwt, verify_jwt, login_required
-
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -13,10 +11,10 @@ def register():
     password = data.get('password')
     role = data.get('role', 'user')  # Default role is 'user'
     business_id = data.get('business_id')  # Optional, only needed for Business Owner or Moderator
-    
+    print(User,'getting it right ? ')
     if User.find_by_username(username):
         return jsonify({"message": "User already exists"}), 400
-    
+    print(User,'getting it right ? ')
     user = User(username, password, role, business_id)
     user.save()
     return jsonify({"message": "User registered successfully", "user_id": user.user_id}), 201  # Return user_id
@@ -62,10 +60,9 @@ def change_password(user_data):  # Note that user_data is now passed as an argum
     new_password_hash = generate_password_hash(new_password)
     
     # Update the user's password in the database
-    users_db.update({'password_hash': new_password_hash}, Query().username == user_data['username'])
+    users_db.update_one({'username': user_data['username']}, {'$set': {'password_hash': new_password_hash}})
     
     return jsonify({"message": "Password changed successfully"}), 200
-
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():

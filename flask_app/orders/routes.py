@@ -1,11 +1,19 @@
 from flask import Blueprint, request, jsonify
-from database.db import orders_db, transactions_db, products_db  # Assuming you have orders, transactions, and products databases
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 import uuid
-from tinydb import Query
 from auth.utils import login_required
 import threading
+from config import Config
 
-# Lock to handle TinyDB's single-threaded nature
+# Initialize MongoDB client and database
+client = MongoClient(Config.MONGO_URI)
+db = client[Config.MONGO_DBNAME]
+orders_db = db['orders']
+transactions_db = db['transactions']
+products_db = db['products']
+
+# Lock to handle MongoDB operations safely in a multi-threaded environment
 db_lock = threading.Lock()
 
 orders_bp = Blueprint('orders', __name__)
@@ -13,18 +21,16 @@ orders_bp = Blueprint('orders', __name__)
 # Utility function to find order by invoice number
 def find_order_by_invoice(invoice_number):
     print(f"Finding order with invoice number: {invoice_number}")  # Debug statement
-    Orders = Query()
     with db_lock:
-        order = orders_db.get(Orders.invoiceNumber == invoice_number)
+        order = orders_db.find_one({"invoiceNumber": invoice_number})
     print(f"Order found: {order}")  # Debug statement
     return order
 
 # Utility function to check if the user owns the order
 def check_ownership(user_id, order_id):
     print(f"Checking ownership for user_id: {user_id} and order_id: {order_id}")  # Debug statement
-    Orders = Query()
     with db_lock:
-        order = orders_db.get(Orders.id == order_id)
+        order = orders_db.find_one({"id": order_id})
     ownership = order and order.get('user_id') == user_id
     print(f"Ownership check result: {ownership}")  # Debug statement
     return ownership
@@ -32,18 +38,16 @@ def check_ownership(user_id, order_id):
 # Utility function to get a product by its ID
 def get_product_by_id(product_id):
     print(f"Getting product with ID: {product_id}")  # Debug statement
-    Product = Query()
     with db_lock:
-        product = products_db.get(Product.id == product_id)
+        product = products_db.find_one({"id": int(product_id)})
     print(f"Product found: {product}")  # Debug statement
     return product
 
 # Utility function to update a product
 def update_product(product):
     print(f"Updating product with ID: {product['id']}")  # Debug statement
-    Product = Query()
     with db_lock:
-        products_db.update(product, Product.id == product['id'])
+        products_db.update_one({"id": int(product['id'])}, {"$set": product})
     print("Product updated successfully")  # Debug statement
 
 # Utility function to validate and reserve product availability
@@ -66,8 +70,8 @@ def reserve_product_quantity(product_id, quantity):
     print(f"Reserving quantity: {quantity} for product_id: {product_id}")  # Debug statement
     product = get_product_by_id(product_id)
     if product:
-        product['reserved_quantity'] += quantity
-        update_product(product)
+        new_reserved_quantity = product.get('reserved_quantity', 0) + quantity
+        products_db.update_one({"id": int(product_id)}, {"$set": {"reserved_quantity": new_reserved_quantity}})
     print("Product quantity reserved successfully")  # Debug statement
     return product
 
@@ -75,8 +79,8 @@ def release_product_quantity(product_id, quantity):
     print(f"Releasing reserved quantity: {quantity} for product_id: {product_id}")  # Debug statement
     product = get_product_by_id(product_id)
     if product:
-        product['reserved_quantity'] -= quantity
-        update_product(product)
+        new_reserved_quantity = product.get('reserved_quantity', 0) - quantity
+        products_db.update_one({"id": int(product_id)}, {"$set": {"reserved_quantity": new_reserved_quantity}})
     print("Product quantity released successfully")  # Debug statement
     return product
 
@@ -84,8 +88,8 @@ def adjust_product_quantity(product_id, quantity):
     print(f"Adjusting quantity: {quantity} for product_id: {product_id}")  # Debug statement
     product = get_product_by_id(product_id)
     if product:
-        product['quantity'] += quantity
-        update_product(product)
+        new_quantity = product['quantity'] + quantity
+        products_db.update_one({"id": int(product_id)}, {"$set": {"quantity": new_quantity}})
     print("Product quantity adjusted successfully")  # Debug statement
     return product
 
@@ -96,9 +100,14 @@ def get_orders(user_data):
     try:
         user_id = user_data.get('user_id')
         print(f"Getting orders for user_id: {user_id}")  # Debug statement
-        Orders = Query()
-        with db_lock:
-            orders = orders_db.search(Orders.user_id == user_id)  # Retrieve only orders belonging to the user
+        
+        orders = list(orders_db.find({"user_id": user_id}))  # Retrieve only orders belonging to the user
+        
+        # Convert ObjectId to string for all orders
+        for order in orders:
+            if '_id' in order:
+                order['_id'] = str(order['_id'])
+        
         print(f"Orders retrieved: {orders}")  # Debug statement
         return jsonify(orders), 200
     except Exception as e:
@@ -121,9 +130,9 @@ def create_order(user_id):
         order_data['status'] = 'Pending'  # Default status is Pending
 
         with db_lock:
-            orders_db.insert(order_data)
+            orders_db.insert_one(order_data)
         print("Order created successfully")  # Debug statement
-        return jsonify(order_data), 201
+        return jsonify(order_data), 200
     except Exception as e:
         print(f"Error creating order: {str(e)}")  # Debug statement
         return jsonify({"message": "Error creating order", "error": str(e)}), 500
@@ -139,9 +148,8 @@ def delete_order(user_data, order_id):
             print("Unauthorized to delete this order")  # Debug statement
             return jsonify({"message": "Unauthorized to delete this order"}), 403
 
-        Orders = Query()
         with db_lock:
-            orders_db.remove(Orders.id == order_id)
+            orders_db.delete_one({"id": order_id})
         print("Order deleted successfully")  # Debug statement
         return jsonify({"message": "Order deleted successfully"}), 200
     except Exception as e:
@@ -190,13 +198,19 @@ def update_order_status(user_data, invoice_number):
 
         order['status'] = new_status
         with db_lock:
-            orders_db.update(order, Query().invoiceNumber == invoice_number)
+            orders_db.update_one({"invoiceNumber": invoice_number}, {"$set": {"status": new_status}})
+        
+        # Convert ObjectId to string before returning
+        if '_id' in order:
+            order['_id'] = str(order['_id'])
+        
         print(f"Order status updated to {new_status}")  # Debug statement
 
         return jsonify(order), 200
     except Exception as e:
         print(f"Error updating order status: {str(e)}")  # Debug statement
         return jsonify({"message": "Error updating order status", "error": str(e)}), 500
+
 
 # API to add a note to an order (Ownership enforced)
 @orders_bp.route('/orders/<string:invoice_number>/notes', methods=['PATCH'])
@@ -219,7 +233,7 @@ def add_order_note(user_data, invoice_number):
             if 'notes' not in order:
                 order['notes'] = []
             order['notes'].append(note)
-            orders_db.update(order, Query().invoiceNumber == invoice_number)
+            orders_db.update_one({"invoiceNumber": invoice_number}, {"$set": {"notes": order['notes']}})
         print("Note added to order successfully")  # Debug statement
 
         return jsonify(order), 200
@@ -243,6 +257,7 @@ def finalize_order(user_data, invoice_number):
         # Generate a new unique ID for the transaction to avoid conflicts
         order['id'] = str(uuid.uuid4())
         order['txn_type'] = 'online sale'
+        order['status'] = 'Completed'
 
         # Check if all products in the order have sufficient stock
         for item in order['cart']:
@@ -255,15 +270,14 @@ def finalize_order(user_data, invoice_number):
         for item in order['cart']:
             adjust_product_quantity(item['id'], -item['quantity'])
             release_product_quantity(item['id'], item['quantity'])  # Release reserved quantities
-        order['status'] = 'Complited'
 
         with db_lock:
             # Insert the order into the transactions database (finalizing the order)
-            transactions_db.insert(order)
+            transactions_db.insert_one(order)
             # Remove the order from the orders database
-            orders_db.remove(Query().invoiceNumber == invoice_number)
-        print("Order finalized successfully")  # Debug statement
+            orders_db.delete_one({"invoiceNumber": invoice_number})
 
+        print("Order finalized successfully")  # Debug statement
         return jsonify({"message": "Order finalized successfully"}), 200
     except Exception as e:
         print(f"Error finalizing order: {str(e)}")  # Debug statement
@@ -278,9 +292,12 @@ def get_orders_by_phone(user_id, phone):
             print("Phone number is required")  # Debug statement
             return jsonify({"message": "Phone number is required"}), 400
 
-        Orders = Query()
-        with db_lock:
-            orders = orders_db.search((Orders.customerPhone == phone) & (Orders.user_id == user_id))
+        orders = list(orders_db.find({"customerPhone": phone, "user_id": user_id}))
+
+        # Convert ObjectId to string for all orders
+        for order in orders:
+            if '_id' in order:
+                order['_id'] = str(order['_id'])
 
         # Reverse the order as per the original function
         orders.reverse()

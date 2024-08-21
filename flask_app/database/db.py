@@ -1,13 +1,15 @@
-from tinydb import TinyDB
+from pymongo import MongoClient
 from config import Config
-from tinydb.storages import JSONStorage
 
+# Initialize MongoDB client
+client = MongoClient(Config.MONGO_URI)
+db = client[Config.MONGO_DBNAME]
 
-profile_db = TinyDB(Config.TINYDB_PROFILE, storage = JSONStorage)
-transactions_db = TinyDB(Config.TINYDB_TRANSACTIONS)
-products_db = TinyDB(Config.TINYDB_PRODUCTS)
-users_db = TinyDB(Config.TINYDB_USERS)
-orders_db = TinyDB(Config.TINYDB_ORDERS)
-settings_db = TinyDB(Config.TINYDB_SETTINGS)  # Add settings_db
-pending_transactions_db = TinyDB(Config.TINYDB_PENDING_TRANSACTIONS)  # Add pending_transactions_db
-
+# Access MongoDB collections
+profile_db = db['profiles']
+transactions_db = db['transactions']
+products_db = db['products']
+users_db = db['users']
+orders_db = db['orders']
+settings_db = db['settings']
+pending_transactions_db = db['pending_transactions']

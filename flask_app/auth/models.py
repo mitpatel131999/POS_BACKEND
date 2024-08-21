@@ -1,9 +1,25 @@
 from werkzeug.security import generate_password_hash, check_password_hash
-from tinydb import Query
-from database.db import users_db
+from pymongo import MongoClient
 import random
 import string
 import uuid  # For generating unique user IDs
+from config import Config
+
+# Initialize MongoDB client and database
+client = MongoClient(Config.MONGO_URI)
+db = client[Config.MONGO_DBNAME]
+
+# Ensure the 'users' collection exists
+collection_name = 'users'
+if collection_name not in db.list_collection_names():
+    # Create the collection by inserting an initial document
+    users_db = db[collection_name]
+    initial_doc = {"_id": "initial", "username": "initial", "password_hash": "", "role": "initial", "business_id": "", "permissions": []}
+    users_db.insert_one(initial_doc)
+    # Remove the initial document
+    users_db.delete_one({"_id": "initial"})
+else:
+    users_db = db[collection_name]
 
 class User:
     def __init__(self, username, password, role, business_id=None):
@@ -25,7 +41,7 @@ class User:
         return roles_permissions.get(role, [])
 
     def save(self):
-        users_db.insert({
+        users_db.insert_one({
             'user_id': self.user_id,  # Save the user ID
             'username': self.username,
             'password_hash': self.password_hash,
@@ -36,14 +52,14 @@ class User:
 
     @staticmethod
     def find_by_username(username):
-        UserQuery = Query()
-        user_data = users_db.get(UserQuery.username == username)
+        print('Attempting to find user by username...')
+        user_data = users_db.find_one({'username': username})
+        print('User data retrieved:', user_data)
         return user_data
 
     @staticmethod
     def find_by_user_id(user_id):
-        UserQuery = Query()
-        user_data = users_db.get(UserQuery.user_id == user_id)
+        user_data = users_db.find_one({'user_id': user_id})
         return user_data
 
     @staticmethod

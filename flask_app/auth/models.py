@@ -4,22 +4,8 @@ import random
 import string
 import uuid  # For generating unique user IDs
 from config import Config
+from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db
 
-# Initialize MongoDB client and database
-client = MongoClient(Config.MONGO_URI)
-db = client[Config.MONGO_DBNAME]
-
-# Ensure the 'users' collection exists
-collection_name = 'users'
-if collection_name not in db.list_collection_names():
-    # Create the collection by inserting an initial document
-    users_db = db[collection_name]
-    initial_doc = {"_id": "initial", "username": "initial", "password_hash": "", "role": "initial", "business_id": "", "permissions": []}
-    users_db.insert_one(initial_doc)
-    # Remove the initial document
-    users_db.delete_one({"_id": "initial"})
-else:
-    users_db = db[collection_name]
 
 class User:
     def __init__(self, username, password, role, business_id=None):

@@ -4,13 +4,7 @@ from bson.objectid import ObjectId
 from auth.utils import login_required
 import threading
 from config import Config
-
-# Initialize MongoDB client and database
-client = MongoClient(Config.MONGO_URI)
-db = client[Config.MONGO_DBNAME]
-profile_db = db['profile']
-settings_db = db['settings']
-pending_transactions_db = db['pending_transactions']
+from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db
 
 # Lock to handle MongoDB operations safely in a multi-threaded environment
 db_lock = threading.Lock()

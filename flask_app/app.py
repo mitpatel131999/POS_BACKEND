@@ -14,7 +14,11 @@ CORS(app)
 app.config.from_object('config.Config')
 
 # Initialize MongoDB client
-client = MongoClient(app.config['MONGO_URI'], server_api=ServerApi('1'))
+client = MongoClient(app.config['MONGO_URI'], server_api=ServerApi('1'),
+                        connectTimeoutMS=30000,
+                        socketTimeoutMS=None,
+                        connect=False,
+                        maxPoolSize=1)
 print(client)
 db = client[app.config['MONGO_DBNAME']]
 

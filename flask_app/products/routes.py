@@ -5,11 +5,9 @@ from auth.utils import login_required
 import threading
 import uuid
 from config import Config
+from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db
 
-# Initialize MongoDB client and database
-client = MongoClient(Config.MONGO_URI)
-db = client[Config.MONGO_DBNAME]
-products_db = db['products']
+
 
 # Lock to handle multi-threaded operations
 db_lock = threading.Lock()

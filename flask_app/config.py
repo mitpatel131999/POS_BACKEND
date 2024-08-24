@@ -9,7 +9,7 @@ class Config:
 
     # MongoDB connection details
     MONGO_USERNAME = 'mitpatelr1999'
-    MONGO_PASSWORD = '****'
+    MONGO_PASSWORD = 'Mit@94285'
 
     # Encode credentials
     ENCODED_USERNAME = quote_plus(MONGO_USERNAME)

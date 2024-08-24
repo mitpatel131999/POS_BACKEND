@@ -90,3 +90,10 @@ def get_user(user_id):
     if user_data:
         return jsonify({"user": user_data}), 200
     return jsonify({"message": "User not found"}), 404
+
+@auth_bp.route('/getUserId/<username>', methods=['GET'])
+def get_user_id_by_username(username):
+    user_data = User.find_by_username(username)
+    if user_data:
+        return jsonify({"user_id": user_data['user_id']}), 200
+    return jsonify({"message": "User not found"}), 404

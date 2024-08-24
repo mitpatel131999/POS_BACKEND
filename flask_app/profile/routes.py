@@ -89,6 +89,9 @@ def update_settings(user_data):
         settings_data = request.json
         settings_data['user_id'] = user_id  # Associate settings with the user
         print('Settings data received:', settings_data)  # Debug statement
+
+        if '_id' in settings_data:
+            del settings_data['_id']
         with db_lock:
             settings_db.update_one({"user_id": user_id}, {"$set": settings_data}, upsert=True)
         print('Settings updated successfully')  # Debug statement

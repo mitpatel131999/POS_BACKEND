@@ -22,6 +22,8 @@ orders_db = db.get_collection('orders')
 settings_db = db.get_collection('settings')
 pending_transactions_db = db.get_collection('pending_transactions')
 logs_db = db.get_collection('logs')
+payment_db = db.get_collection('payment')
+sessions_db = db.get_collection('sesaions')
 
 # Define TTL in seconds (e.g., 30 days)
 LOG_RETENTION_SECONDS = 30 * 24 * 60 * 60  # 30 days in seconds

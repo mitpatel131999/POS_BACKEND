@@ -4,7 +4,7 @@ from bson.objectid import ObjectId
 from auth.utils import login_required
 import threading
 from config import Config
-from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db
+from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db, sessions_db
 
 # Lock to handle MongoDB operations safely in a multi-threaded environment
 db_lock = threading.Lock()
@@ -188,3 +188,90 @@ def save_pending_transaction(user_data):
     except Exception as e:
         print('Error saving pending transaction:', str(e))  # Debug statement
         return jsonify({"message": "Error saving pending transaction"}), 500
+
+
+# Start a new session
+@profile_bp.route('/session/start', methods=['POST'], endpoint='start_session')
+@login_required
+def start_session(user_data):
+    try:
+        session_data = request.json
+        session_data['user_id'] = user_data.get('user_id')
+        session_data['start_time'] = session_data.get('start_time')
+        session_data['initial_cash'] = session_data.get('initial_cash')
+        session_data['cashier_name'] = session_data.get('cashier_name')
+        session_data['status'] = 'active'
+
+        with db_lock:
+            # End any active session for the user before starting a new one
+            sessions_db.update_many({"user_id": session_data['user_id'], "status": "active"}, {"$set": {"status": "ended"}})
+            result = sessions_db.insert_one(session_data)
+            session_data['_id'] = str(result.inserted_id)
+        
+        return jsonify({"message": "Session started successfully", "session_id": session_data['_id']}), 200
+    except Exception as e:
+        return jsonify({"message": f"Error starting session: {str(e)}"}), 500
+
+# Load the current active session
+@profile_bp.route('/session/current', methods=['GET'], endpoint='load_current_session')
+@login_required
+def load_current_session(user_data):
+    try:
+        user_id = user_data.get('user_id')
+        with db_lock:
+            session = sessions_db.find_one({"user_id": user_id, "status": "active"})
+        
+        if session:
+            session['_id'] = str(session['_id'])
+            return jsonify(session), 200
+        else:
+            return jsonify({"message": "No active session found"}), 404
+    except Exception as e:
+        return jsonify({"message": f"Error loading current session: {str(e)}"}), 500
+
+# Load previous sessions
+@profile_bp.route('/session/previous', methods=['GET'], endpoint='load_previous_sessions')
+@login_required
+def load_previous_sessions(user_data):
+    try:
+        user_id = user_data.get('user_id')
+        with db_lock:
+            sessions = list(sessions_db.find({"user_id": user_id, "status": "ended"}))
+            for session in sessions:
+                session['_id'] = str(session['_id'])
+        
+        return jsonify(sessions), 200
+    except Exception as e:
+        return jsonify({"message": f"Error loading previous sessions: {str(e)}"}), 500
+
+# End the current session
+@profile_bp.route('/session/end', methods=['POST'], endpoint='end_session')
+@login_required
+def end_session(user_data):
+    try:
+        session_data = request.json
+        user_id = user_data.get('user_id')
+        final_cash = session_data.get('final_cash')
+        
+        with db_lock:
+            session = sessions_db.find_one({"user_id": user_id, "status": "active"})
+            if session:
+                sessions_db.update_one(
+                    {"_id": session["_id"]},
+                    {"$set": {
+                        "end_time": session_data.get('end_time'),
+                        "final_cash": final_cash,
+                        "status": "ended",
+                        "transactions": session_data.get('transactions'),
+                        "total_sales": session_data.get('total_sales'),
+                        "total_refunds": session_data.get('total_refunds'),
+                        "net_sales": session_data.get('net_sales'),
+                        "expected_cash": session_data.get('expected_cash'),
+                        "discrepancy": session_data.get('discrepancy'),
+                    }}
+                )
+                return jsonify({"message": "Session ended successfully"}), 200
+            else:
+                return jsonify({"message": "No active session found to end"}), 404
+    except Exception as e:
+        return jsonify({"message": f"Error ending session: {str(e)}"}), 500

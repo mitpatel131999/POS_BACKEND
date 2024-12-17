@@ -16,9 +16,5 @@ class Config:
     ENCODED_PASSWORD = quote_plus(MONGO_PASSWORD)
 
     # MongoDB URI
-<<<<<<< HEAD
     MONGO_URI = f"mongodb+srv://{ENCODED_USERNAME}:{ENCODED_PASSWORD}@cluster0.fdivylq.mongodb.net/?retryWrites=false&w=majority&appName=Cluster0"
-=======
-    MONGO_URI = f"mongodb+srv://{ENCODED_USERNAME}:{ENCODED_PASSWORD}@cluster0.fdivylq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
     MONGO_DBNAME = 'posdatabase'

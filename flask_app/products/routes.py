@@ -6,19 +6,12 @@ import threading
 import uuid
 from datetime import datetime
 from config import Config
-<<<<<<< HEAD
 from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db, logs_db, client
 from gridfs import GridFS
 from PIL import Image
 from io import BytesIO
 import uuid
 import os
-=======
-from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db, logs_db
-from gridfs import GridFS
-from PIL import Image
-from io import BytesIO
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 
 # Lock to handle multi-threaded operations
 db_lock = threading.Lock()
@@ -31,7 +24,6 @@ fs = GridFS(products_db.database)
 # Maximum image size (width, height)
 MAX_IMAGE_SIZE = (800, 800)  # 800x800 pixels
 
-<<<<<<< HEAD
 IMAGE_DATA_DIR = 'image_data'
 os.makedirs(IMAGE_DATA_DIR, exist_ok=True)
 
@@ -47,8 +39,6 @@ def save_image_data(image_data):
     return token  # Return the token for storing in MongoDB
 
 
-=======
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 # Utility function to log actions
 def log_action(user_id, action, details):
     log_entry = {
@@ -74,7 +64,6 @@ def check_ownership(user_id, product_id):
     return ownership
 
 # New function to handle image upload, resizing, and storage
-<<<<<<< HEAD
 @products_bp.route('/products/upload', methods=['POST'])
 def upload_image():
     if 'file' not in request.files:
@@ -116,21 +105,6 @@ def upload_image():
     image.thumbnail(MAX_IMAGE_SIZE)  # Resize image to fit within MAX_IMAGE_SIZE
     
     print('4')
-=======
-@products_bp.route('/upload', methods=['POST'])
-def upload_image():
-    if 'file' not in request.files:
-        return jsonify({'message': 'No file part'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'message': 'No selected file'}), 400
-
-    # Open the image and resize it
-    image = Image.open(file)
-    image.thumbnail(MAX_IMAGE_SIZE)  # Resize image to fit within MAX_IMAGE_SIZE
-
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
     # Convert image to binary
     img_byte_arr = BytesIO()
     image.save(img_byte_arr, format='JPEG')
@@ -138,7 +112,6 @@ def upload_image():
 
     # Store image in GridFS
     file_id = fs.put(img_byte_arr, content_type='image/jpeg', filename=file.filename)
-<<<<<<< HEAD
     print(' store the image')
 
     # Generate the image URL
@@ -154,19 +127,6 @@ def get_image(file_id):
     try:
         file_data = fs.get(ObjectId(file_id))
         print(' load image return')
-=======
-
-    # Generate the image URL
-    file_url = f"/products/image/{file_id}"
-
-    return jsonify({'url': file_url, 'file_id': str(file_id)}), 200
-
-# Endpoint to serve images from GridFS
-@products_bp.route('/image/<file_id>', methods=['GET'])
-def get_image(file_id):
-    try:
-        file_data = fs.get(ObjectId(file_id))
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         return send_file(BytesIO(file_data.read()), mimetype=file_data.content_type)
     except Exception as e:
         return jsonify({"message": "Error retrieving image", "error": str(e)}), 500
@@ -204,7 +164,6 @@ def get_products(user_data):
         
         for product in products:
             product['_id'] = str(product['_id'])
-<<<<<<< HEAD
             '''
             # Replace tokens with actual image data
             for image_key in ['frontImage', 'backImage']:
@@ -215,8 +174,6 @@ def get_products(user_data):
                         with open(image_path, 'r') as f:
                             product[image_key] = f.read()  # Replace token with base64 data
             '''
-=======
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         
         print('Products retrieved:', products)  # Debug statement
         log_action(user_id, "get_products", {"product_count": len(products)})
@@ -226,7 +183,6 @@ def get_products(user_data):
         log_action(user_id, "get_products_error", {"error": str(e)})
         return jsonify({"message": "Error retrieving products"}), 500
 
-<<<<<<< HEAD
 @products_bp.route('/products/<int:product_id>', methods=['GET'])
 @login_required
 def get_product_by_id(user_data, product_id):
@@ -321,8 +277,6 @@ def get_paginated_products(user_data):
         return jsonify({"message": "Error retrieving products", "error": str(e)}), 500
 
 
-=======
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 @products_bp.route('/products', methods=['POST'])
 @login_required
 def create_product(user_data):
@@ -338,7 +292,6 @@ def create_product(user_data):
         product_data['user_id'] = user_id  # Associate product with the user
         product_data['reserved_quantity'] = 0
         
-<<<<<<< HEAD
         '''
         # Replace image data with tokens and save image data to local storage
         if 'frontImage' in product_data:
@@ -348,8 +301,6 @@ def create_product(user_data):
             back_image_data = product_data.pop('backImage')
             product_data['backImage'] = save_image_data(back_image_data)
         '''
-=======
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         # Insert the product into the database
         insert_result = products_db.insert_one(product_data)
         
@@ -378,7 +329,6 @@ def update_product(user_data, product_id):
 
         product_data = request.json
         print('Product data to update:', product_data)  # Debug statement
-<<<<<<< HEAD
        
         # Retrieve the existing product from the database to check for old image tokens
         with db_lock:
@@ -409,12 +359,6 @@ def update_product(user_data, product_id):
             del product_data['_id']
         with db_lock:
             products_db.update_one({"id": int(product_id)}, {"$set": product_data})
-=======
-        
-        if '_id' in product_data:
-            del product_data['_id']
-        products_db.update_one({"id": int(product_id)}, {"$set": product_data})
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         print(f'Product with ID {product_id} updated')  # Debug statement
         log_action(user_id, "update_product", product_data)
         return jsonify({"message": "Product updated successfully"}), 200
@@ -514,8 +458,4 @@ def decrease_product_quantity(user_data, product_id):
     except Exception as e:
         print(f'Error decreasing quantity for product ID {product_id}:', str(e))  # Debug statement
         log_action(user_id, "decrease_product_quantity_error", {"error": str(e)})
-<<<<<<< HEAD
         return jsonify({"message": "Error decreasing product quantity"}), 500
-=======
-        return jsonify({"message": "Error decreasing product quantity"}), 500
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4

@@ -10,7 +10,6 @@ client = MongoClient(Config.MONGO_URI,
                         readPreference='secondaryPreferred'  # Use secondary nodes for read operations in a replica set
                     )
 
-<<<<<<< HEAD
 
 
 # Initialize MongoDB client with optimized settings
@@ -57,10 +56,6 @@ products_db.create_index([('id', ASCENDING)])
 orders_db.create_index([('user_id', ASCENDING), ('invoiceNumber', ASCENDING)])
 
 
-=======
-# Access the database
-db = client.get_database(Config.MONGO_DBNAME)
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 
 # Access MongoDB collections
 profile_db = db.get_collection('profiles')

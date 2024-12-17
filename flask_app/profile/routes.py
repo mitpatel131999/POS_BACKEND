@@ -44,12 +44,9 @@ def update_profile(user_data):
         profile_data = request.json
         profile_data['user_id'] = user_id  # Associate profile with the user
         print('Profile data received:', profile_data)  # Debug statement
-<<<<<<< HEAD
         if '_id' in profile_data:
               del profile_data['_id']
 
-=======
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         with db_lock:
             profile_db.update_one({"user_id": user_id}, {"$set": profile_data}, upsert=True)
         print('Profile updated successfully')  # Debug statement
@@ -158,7 +155,6 @@ def add_pending_transaction(user_data):
         transaction_data = request.json
         transaction_data['user_id'] = user_id  # Associate transaction with the user
         print('Pending transaction data received:', transaction_data)  # Debug statement
-<<<<<<< HEAD
 
         # Reserve quantities for each product in the transaction
         for item in transaction_data.get('cart', []):
@@ -168,11 +164,6 @@ def add_pending_transaction(user_data):
             result = pending_transactions_db.insert_one(transaction_data)
             transaction_data['_id'] = str(result.inserted_id)
 
-=======
-        with db_lock:
-            result = pending_transactions_db.insert_one(transaction_data)
-            transaction_data['_id'] = str(result.inserted_id)
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         print('Pending transaction added successfully')  # Debug statement
         return jsonify(transaction_data), 200
     except Exception as e:
@@ -186,7 +177,6 @@ def delete_pending_transaction(user_data, transaction_id):
     try:
         user_id = user_data.get('user_id')
         with db_lock:
-<<<<<<< HEAD
             transaction = pending_transactions_db.find_one({"id": int(transaction_id)})
             print(transaction)
 
@@ -198,14 +188,6 @@ def delete_pending_transaction(user_data, transaction_id):
             with db_lock:
                 pending_transactions_db.delete_one({"id": int(transaction_id)})
 
-=======
-            transaction = pending_transactions_db.find_one({"_id": ObjectId(transaction_id)})
-            print(transaction)
-        
-        if transaction and transaction.get('user_id') == user_id:
-            with db_lock:
-                pending_transactions_db.delete_one({"id": int(transaction_id)})
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
             print(f'Pending transaction with ID {transaction_id} deleted')  # Debug statement
             return jsonify({"message": "Pending transaction deleted successfully"}), 200
         else:
@@ -372,8 +354,4 @@ def end_session(user_data):
             else:
                 return jsonify({"message": "No active session found to end"}), 404
     except Exception as e:
-<<<<<<< HEAD
         return jsonify({"message": f"Error ending session: {str(e)}"}), 500
-=======
-        return jsonify({"message": f"Error ending session: {str(e)}"}), 500
->>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4

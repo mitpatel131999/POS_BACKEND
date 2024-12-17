@@ -1,9 +1,7 @@
 from flask import Blueprint, request, jsonify
 from auth.models import User
-from auth.utils import authenticate, create_jwt, verify_jwt
 from auth.utils import authenticate, create_jwt, verify_jwt, login_required
-
-
+from werkzeug.security import generate_password_hash, check_password_hash 
 auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route('/register', methods=['POST'])
@@ -13,10 +11,10 @@ def register():
     password = data.get('password')
     role = data.get('role', 'user')  # Default role is 'user'
     business_id = data.get('business_id')  # Optional, only needed for Business Owner or Moderator
-    
+    print(User,'getting it right ? ')
     if User.find_by_username(username):
         return jsonify({"message": "User already exists"}), 400
-    
+    print(User,'getting it right ? ')
     user = User(username, password, role, business_id)
     user.save()
     return jsonify({"message": "User registered successfully", "user_id": user.user_id}), 201  # Return user_id
@@ -53,19 +51,25 @@ def change_password(user_data):  # Note that user_data is now passed as an argum
     # Get the new password from the JSON payload
     data = request.json
     new_password = data.get('new_password')
-    
+   
+    print('111')
     # Ensure the new password is provided
     if not new_password:
         return jsonify({"message": "New password is required"}), 400
     
+    print('222')
     # Hash the new password
     new_password_hash = generate_password_hash(new_password)
     
-    # Update the user's password in the database
-    users_db.update({'password_hash': new_password_hash}, Query().username == user_data['username'])
-    
-    return jsonify({"message": "Password changed successfully"}), 200
+    print('333')
+    print(user_data)
 
+    #user = User(user_data['username'], new_password_hash, user_data['role'], user_data['business_id'])
+    #user.save() 
+    # Update the user's password in the database
+    users_db.update_one({'username': user_data['username']}, {'$set': {'password_hash': new_password_hash}})
+    print('444')
+    return jsonify({"message": "Password changed successfully"}), 200
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
@@ -92,4 +96,11 @@ def get_user(user_id):
     user_data = User.find_by_user_id(user_id)
     if user_data:
         return jsonify({"user": user_data}), 200
+    return jsonify({"message": "User not found"}), 404
+
+@auth_bp.route('/getUserId/<username>', methods=['GET'])
+def get_user_id_by_username(username):
+    user_data = User.find_by_username(username)
+    if user_data:
+        return jsonify({"user_id": user_data['user_id']}), 200
     return jsonify({"message": "User not found"}), 404

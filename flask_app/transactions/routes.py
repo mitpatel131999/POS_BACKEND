@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 from flask import Blueprint, request, jsonify, render_template_string
+=======
+from flask import Blueprint, request, jsonify
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import uuid
@@ -27,7 +31,11 @@ def log_action(user_id, action, details):
 
 # Utility function to check if the user owns the transaction
 def check_ownership(user_id, transaction_id):
+<<<<<<< HEAD
     transaction = transactions_db.find_one({"id": transaction_id})
+=======
+    transaction = transactions_db.find_one({"invoiceNumber": transaction_id})
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
     ownership = transaction and transaction.get('user_id') == user_id
     log_action(user_id, "check_ownership", {"transaction_id": transaction_id, "ownership": ownership})
     return ownership
@@ -98,6 +106,7 @@ def get_transactions(user_data):
                 filters["date"] = {"$lte": end_date}
         if txn_type:
             filters["txn_type"] = txn_type
+<<<<<<< HEAD
         
         # Fetch paginated transactions sorted by latest date first
         transactions = list(
@@ -111,6 +120,15 @@ def get_transactions(user_data):
         for transaction in transactions:
             transaction['_id'] = str(transaction['_id'])  # Convert ObjectId to string for JSON serialization
 
+=======
+
+        transactions = list(transactions_db.find(filters))
+        print(f'{len(transactions)} transactions found with filters')  # Debug statement
+
+        for transaction in transactions:
+            transaction['_id'] = str(transaction['_id'])  # Convert ObjectId to string for JSON serialization
+
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         log_action(user_id, "get_transactions", {"filters": filters, "transaction_count": len(transactions)})
         return jsonify(transactions), 200
     except Exception as e:
@@ -299,6 +317,7 @@ def create_transaction(user_data):
         transaction_data['id'] = str(uuid.uuid4())
         transaction_data['user_id'] = user_id  # Associate transaction with the user
 
+<<<<<<< HEAD
         # Remove image data from each item in the cart
         for item in transaction_data.get('cart', []):
             # Remove image fields from the cart item if they exist
@@ -308,23 +327,37 @@ def create_transaction(user_data):
 
         
 
+=======
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         adjusted_items = []
 
         try:
             if transaction_data['txn_type'] == 'sale':
                 for item in transaction_data['cart']:
+<<<<<<< HEAD
                     valid, message = validate_product_availability(item['id'], float(item['quantity']))
+=======
+                    valid, message = validate_product_availability(item['id'], item['quantity'])
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
                     if not valid:
                         rollback_quantities(adjusted_items)
                         log_action(user_id, "create_transaction_validation_failed", {"transaction_data": transaction_data, "message": message})
                         return jsonify({"message": message}), 400
                     
+<<<<<<< HEAD
                     adjust_product_quantity(item['id'], -float(item['quantity']))
+=======
+                    adjust_product_quantity(item['id'], -item['quantity'])
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
                     adjusted_items.append(item)
 
             elif transaction_data['txn_type'] == 'refund':
                 for item in transaction_data['cart']:
+<<<<<<< HEAD
                     adjust_product_quantity(item['id'], float(item['quantity']))
+=======
+                    adjust_product_quantity(item['id'], item['quantity'])
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 
             with db_lock:
                 result = transactions_db.insert_one(transaction_data)
@@ -332,6 +365,7 @@ def create_transaction(user_data):
 
             print('Transaction created with ID:', transaction_data['id'])  # Debug statement
             log_action(user_id, "create_transaction", transaction_data)
+<<<<<<< HEAD
 
             # Check and remove any pending transaction with the same invoice number
             invoice_number = transaction_data.get('invoiceNumber')
@@ -343,6 +377,8 @@ def create_transaction(user_data):
                         print(f"Removing pending transaction with invoice number: {invoice_number}")  # Debug statement
                         pending_transactions_db.delete_one({"invoiceNumber": invoice_number})
 
+=======
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
             return jsonify(transaction_data), 200
 
         except Exception as e:
@@ -391,17 +427,28 @@ def delete_transaction(user_data, transaction_id):
             return jsonify({"message": "Unauthorized to delete this transaction"}), 403
 
         with db_lock:
+<<<<<<< HEAD
             transaction = transactions_db.find_one({"id": transaction_id})
             print('transaction:',transaction)
             if transaction:
                 if transaction['txn_type'] == 'sale' or transaction['txn_type'] == 'online sale':
+=======
+            transaction = transactions_db.find_one({"invoiceNumber": transaction_id})
+            if transaction:
+                if transaction['txn_type'] == 'sale':
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
                     for item in transaction['cart']:
                         adjust_product_quantity(item['id'], item['quantity'])
                 elif transaction['txn_type'] == 'refund':
                     for item in transaction['cart']:
                         adjust_product_quantity(item['id'], -item['quantity'])
+<<<<<<< HEAD
                 print('waiting')
                 transactions_db.delete_one({"id": transaction_id})
+=======
+
+                transactions_db.delete_one({"invoiceNumber": transaction_id})
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 
         print(f'Transaction with ID {transaction_id} deleted')  # Debug statement
         log_action(user_id, "delete_transaction", {"transaction_id": transaction_id})

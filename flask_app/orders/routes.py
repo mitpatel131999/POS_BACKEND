@@ -137,6 +137,7 @@ def create_order(user_id):
         order_data['user_id'] = user_id
         order_data['status'] = 'Pending'
 
+<<<<<<< HEAD
         # Remove image data from each item in the order
         for item in order_data.get('cart', []):  # Assuming 'cart' contains the order items
             # Remove image fields from the item if they exist
@@ -144,6 +145,8 @@ def create_order(user_id):
             item['backImage'] = ""
             item['frontImage'] = ""
 
+=======
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         with db_lock:
             orders_db.insert_one(order_data)
         print("Order created successfully")  # Debug statement
@@ -196,6 +199,7 @@ def update_order_status(user_data, invoice_number):
             print("Status is required")  # Debug statement
             return jsonify({"message": "Status is required"}), 400
 
+<<<<<<< HEAD
                 ### Corrected logic for updating order status
         if order['status'] == 'Pending' and new_status == 'In Progress':
             adjusted_items = []  # Track items for rollback in case of failure
@@ -230,10 +234,25 @@ def update_order_status(user_data, invoice_number):
                 return jsonify({"message": f"Error during reservation: {str(e)}"}), 500
 
         elif order['status'] != 'Pending' and new_status == 'Pending':
+=======
+        if order['status'] == 'Pending' and new_status == 'In Progress':
+            for item in order['cart']:
+                valid, message = validate_and_reserve_product_availability(item['id'], item['quantity'])
+                if not valid:
+                    print(f"Validation failed: {message}")  # Debug statement
+                    log_action(user_id, "update_order_status_failed", {"invoice_number": invoice_number, "message": message})
+                    return jsonify({"message": message}), 400
+
+            for item in order['cart']:
+                reserve_product_quantity(item['id'], item['quantity'])
+
+        elif order['status'] == 'In Progress' and new_status == 'Pending':
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
             for item in order['cart']:
                 release_product_quantity(item['id'], item['quantity'])
 
         elif new_status == 'Cancelled':
+<<<<<<< HEAD
             if order['status'] != 'Pending':
                 for item in order['cart']:
                     release_product_quantity(item['id'], item['quantity'])
@@ -247,6 +266,12 @@ def update_order_status(user_data, invoice_number):
             # Return a response indicating the order was deleted
             #return jsonify({"message": "Order cancelled and removed from the system."}), 201
 
+=======
+            if order['status'] == 'In Progress':
+                for item in order['cart']:
+                    release_product_quantity(item['id'], item['quantity'])
+
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         order['status'] = new_status
         with db_lock:
             orders_db.update_one({"invoiceNumber": invoice_number}, {"$set": {"status": new_status}})
@@ -308,7 +333,10 @@ def add_order_note(user_data, invoice_number):
         return jsonify({"message": "Error adding note to order", "error": str(e)}), 500
 
 
+<<<<<<< HEAD
 '''
+=======
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 # API to finalize an order, move it to transactions, and remove it from orders
 @orders_bp.route('/orders/<string:invoice_number>/finalize', methods=['POST'])
 @login_required
@@ -351,6 +379,7 @@ def finalize_order(user_data, invoice_number):
         return jsonify({"message": "Error finalizing order", "error": str(e)}), 500
 '''
 
+<<<<<<< HEAD
 # Updated `finalize_order` to handle product quantities and rollback on failure
 @orders_bp.route('/orders/<string:invoice_number>/finalize', methods=['POST'])
 @login_required
@@ -413,6 +442,12 @@ def finalize_order(user_data, invoice_number):
 @orders_bp.route('/orders/byPhone/<string:user_id>/<string:phone>', methods=['GET'])
 def get_orders_by_phone(user_id, phone):
     try:
+=======
+# API to get orders by phone number
+@orders_bp.route('/orders/byPhone/<string:user_id>/<string:phone>', methods=['GET'])
+def get_orders_by_phone(user_id, phone):
+    try:
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
         print(f"Getting orders for phone number: {phone}, user_id: {user_id}")  # Debug statement
         if not phone:
             print("Phone number is required")  # Debug statement

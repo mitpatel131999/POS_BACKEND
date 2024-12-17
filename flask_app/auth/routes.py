@@ -1,7 +1,11 @@
 from flask import Blueprint, request, jsonify
 from auth.models import User
 from auth.utils import authenticate, create_jwt, verify_jwt, login_required
+<<<<<<< HEAD
 from werkzeug.security import generate_password_hash, check_password_hash 
+=======
+
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route('/register', methods=['POST'])
@@ -61,6 +65,7 @@ def change_password(user_data):  # Note that user_data is now passed as an argum
     # Hash the new password
     new_password_hash = generate_password_hash(new_password)
     
+<<<<<<< HEAD
     print('333')
     print(user_data)
 
@@ -71,6 +76,13 @@ def change_password(user_data):  # Note that user_data is now passed as an argum
     print('444')
     return jsonify({"message": "Password changed successfully"}), 200
 
+=======
+    # Update the user's password in the database
+    users_db.update_one({'username': user_data['username']}, {'$set': {'password_hash': new_password_hash}})
+    
+    return jsonify({"message": "Password changed successfully"}), 200
+
+>>>>>>> 19868571793498183aaf34bda9e40a1cc87d74e4
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
     data = request.json

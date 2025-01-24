@@ -122,6 +122,7 @@ def get_orders(user_data):
         log_action(user_id, "retrieve_orders_error", {"error": str(e)})
         return jsonify({"message": "Error retrieving orders", "error": str(e)}), 500
 
+
 # API to create a new order
 @orders_bp.route('/orders/<string:user_id>', methods=['POST'])
 def create_order(user_id):
@@ -178,6 +179,7 @@ def delete_order(user_data, order_id):
         log_action(user_id, "delete_order_error", {"error": str(e)})
         return jsonify({"message": "Error deleting order", "error": str(e)}), 500
 
+'''
 # API to update the status of an order
 @orders_bp.route('/orders/<string:invoice_number>/status', methods=['PATCH'])
 @login_required
@@ -262,6 +264,107 @@ def update_order_status(user_data, invoice_number):
         print(f"Error updating order status: {str(e)}")  # Debug statement
         log_action(user_id, "update_order_status_error", {"error": str(e)})
         return jsonify({"message": "Error updating order status", "error": str(e)}), 500
+'''
+# API to update the status of an order
+@orders_bp.route('/orders/<string:invoice_number>/status', methods=['PATCH'])
+@login_required
+def update_order_status(user_data, invoice_number):
+    try:
+        user_id = user_data.get('user_id')
+        print(f"Updating order status for invoice_number: {invoice_number}, user_id: {user_id}")  # Debug statement
+        order = find_order_by_invoice(invoice_number)
+        if not order or order['user_id'] != user_id:
+            print("Unauthorized to update this order")  # Debug statement
+            log_action(user_id, "update_order_status_unauthorized", {"invoice_number": invoice_number})
+            return jsonify({"message": "Unauthorized to update this order"}), 403
+
+        new_status = request.json.get('status')
+        if not new_status:
+            print("Status is required")  # Debug statement
+            return jsonify({"message": "Status is required"}), 400
+
+        # Handle status transitions
+        if order['status'] == 'Pending' and new_status == 'In Progress':
+            adjusted_items = []  # Track items for rollback in case of failure
+            try:
+                for item in order['cart']:
+                    if item.get('isGroupProduct', False):
+                        for group_item in item.get('groupDetails', []):
+                            valid, message = validate_and_reserve_product_availability(group_item['id'], group_item['quantity'])
+                            if not valid:
+                                for adjusted_item in adjusted_items:
+                                    release_product_quantity(adjusted_item['id'], adjusted_item['quantity'])
+                                print(f"Validation failed: {message}")  # Debug statement
+                                log_action(user_id, "update_order_status_failed", {
+                                    "invoice_number": invoice_number,
+                                    "message": message,
+                                })
+                                return jsonify({"message": message}), 400
+                            reserve_product_quantity(group_item['id'], group_item['quantity'])
+                            adjusted_items.append(group_item)
+                    else:
+                        valid, message = validate_and_reserve_product_availability(item['id'], item['quantity'])
+                        if not valid:
+                            for adjusted_item in adjusted_items:
+                                release_product_quantity(adjusted_item['id'], adjusted_item['quantity'])
+                            print(f"Validation failed: {message}")  # Debug statement
+                            log_action(user_id, "update_order_status_failed", {
+                                "invoice_number": invoice_number,
+                                "message": message,
+                            })
+                            return jsonify({"message": message}), 400
+                        reserve_product_quantity(item['id'], item['quantity'])
+                        adjusted_items.append(item)
+
+                print(f"All items validated and reserved successfully for order {invoice_number}.")  # Debug statement
+                log_action(user_id, "update_order_status_success", {"invoice_number": invoice_number, "new_status": new_status})
+
+            except Exception as e:
+                for adjusted_item in adjusted_items:
+                    release_product_quantity(adjusted_item['id'], adjusted_item['quantity'])
+                print(f"Error during reservation: {str(e)}")  # Debug statement
+                log_action(user_id, "update_order_status_error", {"error": str(e)})
+                return jsonify({"message": f"Error during reservation: {str(e)}"}), 500
+
+        elif order['status'] != 'Pending' and new_status == 'Pending':
+            for item in order['cart']:
+                if item.get('isGroupProduct', False):
+                    for group_item in item.get('groupDetails', []):
+                        release_product_quantity(group_item['id'], group_item['quantity'])
+                else:
+                    release_product_quantity(item['id'], item['quantity'])
+
+        elif new_status == 'Cancelled':
+            if order['status'] != 'Pending':
+                for item in order['cart']:
+                    if item.get('isGroupProduct', False):
+                        for group_item in item.get('groupDetails', []):
+                            release_product_quantity(group_item['id'], group_item['quantity'])
+                    else:
+                        release_product_quantity(item['id'], item['quantity'])
+
+            # Remove the order from the database
+            with db_lock:
+                orders_db.delete_one({"invoiceNumber": invoice_number})
+            print(f"Order with invoice number {invoice_number} has been cancelled and removed.")  # Debug statement
+            log_action(user_id, "cancelled_order", {"invoice_number": invoice_number})
+
+        order['status'] = new_status
+        with db_lock:
+            orders_db.update_one({"invoiceNumber": invoice_number}, {"$set": {"status": new_status}})
+        
+        if '_id' in order:
+            order['_id'] = str(order['_id'])
+        
+        print(f"Order status updated to {new_status}")  # Debug statement
+        log_action(user_id, "update_order_status", {"invoice_number": invoice_number, "new_status": new_status})
+
+        return jsonify(order), 200
+    except Exception as e:
+        print(f"Error updating order status: {str(e)}")  # Debug statement
+        log_action(user_id, "update_order_status_error", {"error": str(e)})
+        return jsonify({"message": "Error updating order status", "error": str(e)}), 500
+
 
 # API to add a note to an order
 @orders_bp.route('/orders/<string:invoice_number>/notes', methods=['PATCH'])
@@ -308,49 +411,8 @@ def add_order_note(user_data, invoice_number):
         return jsonify({"message": "Error adding note to order", "error": str(e)}), 500
 
 
+
 '''
-# API to finalize an order, move it to transactions, and remove it from orders
-@orders_bp.route('/orders/<string:invoice_number>/finalize', methods=['POST'])
-@login_required
-def finalize_order(user_data, invoice_number):
-    try:
-        user_id = user_data.get('user_id')
-        print(f"Finalizing order with invoice_number: {invoice_number}, user_id: {user_id}")  # Debug statement
-        order = find_order_by_invoice(invoice_number)
-
-        if not order or order['user_id'] != user_id:
-            print("Unauthorized to finalize this order")  # Debug statement
-            log_action(user_id, "finalize_order_unauthorized", {"invoice_number": invoice_number})
-            return jsonify({"message": "Unauthorized to finalize this order"}), 403
-
-        order['id'] = str(uuid.uuid4())
-        order['txn_type'] = 'online sale'
-        order['status'] = 'Completed'
-
-        for item in order['cart']:
-            product = get_product_by_id(item['id'])
-            if product['quantity'] < item['quantity']:
-                print(f"Insufficient stock for {product['name']}")  # Debug statement
-                log_action(user_id, "finalize_order_insufficient_stock", {"invoice_number": invoice_number, "product_id": item['id']})
-                return jsonify({"message": f"Insufficient stock for {product['name']}"}), 400
-
-        for item in order['cart']:
-            adjust_product_quantity(item['id'], -item['quantity'])
-            release_product_quantity(item['id'], item['quantity'])
-
-        with db_lock:
-            transactions_db.insert_one(order)
-            orders_db.delete_one({"invoiceNumber": invoice_number})
-
-        print("Order finalized successfully")  # Debug statement
-        log_action(user_id, "finalize_order", {"invoice_number": invoice_number})
-        return jsonify({"message": "Order finalized successfully"}), 200
-    except Exception as e:
-        print(f"Error finalizing order: {str(e)}")  # Debug statement
-        log_action(user_id, "finalize_order_error", {"error": str(e)})
-        return jsonify({"message": "Error finalizing order", "error": str(e)}), 500
-'''
-
 # Updated `finalize_order` to handle product quantities and rollback on failure
 @orders_bp.route('/orders/<string:invoice_number>/finalize', methods=['POST'])
 @login_required
@@ -409,6 +471,75 @@ def finalize_order(user_data, invoice_number):
         print(f"Error finalizing order: {str(e)}")  # Debug statement
         log_action(user_id, "finalize_order_error", {"error": str(e)})
         return jsonify({"message": "Error finalizing order", "error": str(e)}), 500
+
+'''
+
+@orders_bp.route('/orders/<string:invoice_number>/finalize', methods=['POST'])
+@login_required
+def finalize_order(user_data, invoice_number):
+    try:
+        user_id = user_data.get('user_id')
+        print(f"Finalizing order with invoice_number: {invoice_number}, user_id: {user_id}")  # Debug statement
+        order = find_order_by_invoice(invoice_number)
+
+        if not order or order['user_id'] != user_id:
+            print("Unauthorized to finalize this order")  # Debug statement
+            log_action(user_id, "finalize_order_unauthorized", {"invoice_number": invoice_number})
+            return jsonify({"message": "Unauthorized to finalize this order"}), 403
+
+        order['id'] = str(uuid.uuid4())
+        order['txn_type'] = 'online sale'
+        order['status'] = 'Completed'
+
+        try:
+            for item in order['cart']:
+                if item.get('isGroupProduct'):
+                    # Handle group product: iterate through child products
+                    for group_item in item['groupDetails']:
+                        product = get_product_by_id(group_item['id'])
+                        if not product or product['quantity'] < group_item['quantity']:
+                            log_action(user_id, "finalize_order_insufficient_stock", {
+                                "invoice_number": invoice_number,
+                                "product_id": group_item['id'],
+                                "available_quantity": product['quantity'] if product else 0
+                            })
+                            raise ValueError(f"Insufficient stock for {group_item['id']}")
+
+                        adjust_product_quantity(group_item['id'], -float(group_item['quantity']))
+                        release_product_quantity(group_item['id'], float(group_item['quantity']))
+                else:
+                    # Handle normal product
+                    product = get_product_by_id(item['id'])
+                    if not product or product['quantity'] < item['quantity']:
+                        log_action(user_id, "finalize_order_insufficient_stock", {
+                            "invoice_number": invoice_number,
+                            "product_id": item['id'],
+                            "available_quantity": product['quantity'] if product else 0
+                        })
+                        raise ValueError(f"Insufficient stock for {item['name']}")
+
+                    adjust_product_quantity(item['id'], -float(item['quantity']))
+                    release_product_quantity(item['id'], float(item['quantity']))
+
+            with db_lock:
+                transactions_db.insert_one(order)
+                orders_db.delete_one({"invoiceNumber": invoice_number})
+
+            print("Order finalized successfully")  # Debug statement
+            log_action(user_id, "finalize_order", {"invoice_number": invoice_number})
+            return jsonify({"message": "Order finalized successfully"}), 200
+
+        except Exception as e:
+            print(f"Error finalizing order: {str(e)}")  # Debug statement
+            log_action(user_id, "finalize_order_error", {"error": str(e)})
+            return jsonify({"message": f"Error finalizing order: {str(e)}"}), 500
+
+    except Exception as e:
+        print(f"Error finalizing order: {str(e)}")  # Debug statement
+        log_action(user_id, "finalize_order_error", {"error": str(e)})
+        return jsonify({"message": "Error finalizing order", "error": str(e)}), 500
+
+
 # API to get orders by phone number
 @orders_bp.route('/orders/byPhone/<string:user_id>/<string:phone>', methods=['GET'])
 def get_orders_by_phone(user_id, phone):

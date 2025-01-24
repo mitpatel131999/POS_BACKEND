@@ -8,6 +8,7 @@ from datetime import datetime
 from config import Config
 from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db, logs_db
 
+
 # Lock to handle MongoDB operations safely in a multi-threaded environment
 db_lock = threading.Lock()
 
@@ -72,6 +73,35 @@ def rollback_quantities(adjusted_items):
     for item in adjusted_items:
         adjust_product_quantity(item['id'], item['quantity'])
     log_action(None, "rollback_quantities", {"adjusted_items": adjusted_items})
+
+
+
+# Utility function to get a product by its ID
+def get_product_by_id(product_id):
+     print(f"Getting product with ID: {product_id}")  # Debug statement
+     with db_lock:
+         product = products_db.find_one({"id": int(product_id)})
+     print(f"Product found: {product}")  # Debug statement
+     return product
+
+
+def reserve_product_quantity(product_id, quantity):
+    print(f"Reserving quantity: {quantity} for product_id: {product_id}")  # Debug statement
+    product = get_product_by_id(product_id)
+    if product:
+        new_reserved_quantity = product.get('reserved_quantity', 0) + quantity
+        products_db.update_one({"id": int(product_id)}, {"$set": {"reserved_quantity": new_reserved_quantity}})
+    print("Product quantity reserved successfully")  # Debug statement
+    return product
+
+def release_product_quantity(product_id, quantity):
+    print(f"Releasing reserved quantity: {quantity} for product_id: {product_id}")  # Debug statement
+    product = get_product_by_id(product_id)
+    if product:
+        new_reserved_quantity = product.get('reserved_quantity', 0) - quantity
+        products_db.update_one({"id": int(product_id)}, {"$set": {"reserved_quantity": max(0, new_reserved_quantity)}})
+    print("Product quantity released successfully")  # Debug statement
+    return product
 
 @transactions_bp.route('/transactions', methods=['GET'])
 @login_required
@@ -287,7 +317,7 @@ def get_transactions_v2(user_data):
         log_action(user_id, "get_transactions_error", {"error": str(e)})
         return jsonify({"message": "Error retrieving transactions"}), 500
 
-
+'''
 @transactions_bp.route('/transactions', methods=['POST'])
 @login_required
 def create_transaction(user_data):
@@ -311,7 +341,7 @@ def create_transaction(user_data):
         adjusted_items = []
 
         try:
-            if transaction_data['txn_type'] == 'sale':
+            if transaction_data['txn_type'] == 'sale' or transaction_data['txn_type'] == 'online_sale':
                 for item in transaction_data['cart']:
                     valid, message = validate_product_availability(item['id'], float(item['quantity']))
                     if not valid:
@@ -335,13 +365,24 @@ def create_transaction(user_data):
 
             # Check and remove any pending transaction with the same invoice number
             invoice_number = transaction_data.get('invoiceNumber')
-            if invoice_number:
-                print(f"Checking for existing pending transaction with invoice number: {invoice_number}")  # Debug statement
-                with db_lock:
+            if not invoice_number:
+                print("No invoice number provided, skipping pending transaction check")
+            else:
+                print(f"Checking for existing pending transaction with invoice number: {invoice_number}")
+                try:
                     pending_transaction = pending_transactions_db.find_one({"invoiceNumber": invoice_number})
                     if pending_transaction:
-                        print(f"Removing pending transaction with invoice number: {invoice_number}")  # Debug statement
-                        pending_transactions_db.delete_one({"invoiceNumber": invoice_number})
+                        print(f"Found pending transaction for invoice number: {invoice_number}")
+                        for item in pending_transaction.get('cart', []):
+                            release_product_quantity(item['id'], float(item['quantity']))
+                        with db_lock:
+                            pending_transactions_db.delete_one({"invoiceNumber": invoice_number})
+                            print(f"Removed pending transaction for invoice number: {invoice_number}")
+                    else:
+                        print(f"No pending transaction found for invoice number: {invoice_number}")
+                except Exception as e:
+                    print(f"Error while handling pending transaction: {str(e)}")
+
 
             return jsonify(transaction_data), 200
 
@@ -354,6 +395,106 @@ def create_transaction(user_data):
     except Exception as e:
         print('Error creating transaction:', str(e))  # Debug statement
         log_action(user_id, "create_transaction_error", {"error": str(e)})
+        return jsonify({"message": "Error creating transaction"}), 500
+'''
+
+@transactions_bp.route('/transactions', methods=['POST'])
+@login_required
+def create_transaction(user_data):
+    print('POST /transactions called')  # Debug statement
+    try:
+        transaction_data = request.json
+        print('Transaction data received:', transaction_data)  # Debug statement
+        user_id = user_data.get('user_id')
+        transaction_data['id'] = str(uuid.uuid4())
+        transaction_data['user_id'] = user_id  # Associate transaction with the user
+
+        # Remove image data from each item in the cart
+        for item in transaction_data.get('cart', []):
+            item['backImage'] = ""
+            item['frontImage'] = ""
+
+        adjusted_items = []
+
+        try:
+            if transaction_data['txn_type'] in ['sale', 'online_sale']:
+                for item in transaction_data['cart']:
+                    product = get_product_by_id(item['id'])
+                    
+                    if product and product.get('isGroupProduct'):
+                        # If group product, adjust quantities for all its components
+                        for group_item in product['groupDetails']:
+                            group_product = get_product_by_id(group_item['id'])
+                            if not group_product:
+                                rollback_quantities(adjusted_items)
+                                return jsonify({"message": f"Component product {group_item['id']} not found"}), 400
+                            
+                            valid, message = validate_product_availability(
+                                group_item['id'],
+                                float(group_item['quantity']) * float(item['quantity'])
+                            )
+                            if not valid:
+                                rollback_quantities(adjusted_items)
+                                return jsonify({"message": message}), 400
+                            
+                            adjust_product_quantity(
+                                group_item['id'],
+                                -float(group_item['quantity']) * float(item['quantity'])
+                            )
+                            adjusted_items.append({
+                                "id": group_item['id'],
+                                "quantity": float(group_item['quantity']) * float(item['quantity'])
+                            })
+                    else:
+                        # Handle individual products
+                        valid, message = validate_product_availability(item['id'], float(item['quantity']))
+                        if not valid:
+                            rollback_quantities(adjusted_items)
+                            return jsonify({"message": message}), 400
+                        
+                        adjust_product_quantity(item['id'], -float(item['quantity']))
+                        adjusted_items.append(item)
+
+            elif transaction_data['txn_type'] == 'refund':
+                for item in transaction_data['cart']:
+                    product = get_product_by_id(item['id'])
+                    if product and product.get('isGroupProduct'):
+                        # If group product, adjust quantities for all its components
+                        for group_item in product['groupDetails']:
+                            adjust_product_quantity(
+                                group_item['id'],
+                                float(group_item['quantity']) * float(item['quantity'])
+                            )
+                    else:
+                        # Handle individual products
+                        adjust_product_quantity(item['id'], float(item['quantity']))
+
+            with db_lock:
+                result = transactions_db.insert_one(transaction_data)
+                transaction_data['_id'] = str(result.inserted_id)
+
+            print('Transaction created with ID:', transaction_data['id'])  # Debug statement
+            log_action(user_id, "create_transaction", transaction_data)
+
+            # Check and remove any pending transaction with the same invoice number
+            invoice_number = transaction_data.get('invoiceNumber')
+            if invoice_number:
+                pending_transaction = pending_transactions_db.find_one({"invoiceNumber": invoice_number})
+                if pending_transaction:
+                    for item in pending_transaction.get('cart', []):
+                        release_product_quantity(item['id'], float(item['quantity']))
+                    with db_lock:
+                        pending_transactions_db.delete_one({"invoiceNumber": invoice_number})
+
+            return jsonify(transaction_data), 200
+
+        except Exception as e:
+            print('Error during transaction creation, rolling back changes:', str(e))  # Debug statement
+            rollback_quantities(adjusted_items)
+            return jsonify({"message": "Error creating transaction, changes rolled back"}), 500
+
+    except Exception as e:
+        print('Error creating transaction:', str(e))  # Debug statement
         return jsonify({"message": "Error creating transaction"}), 500
 
 
@@ -608,6 +749,15 @@ def render_receipt(user_id, invoiceNumber):
                     <p>Total Paid: {total_paid}</p>
                     <p>{'Payment Complete' if total_due <= 0 else f'Amount Due: {total_due}'}</p>
                 </div>
+                <div class="details-section">
+                            <p><strong>{profile_data['bankingDetails'].get('selectedCountry', '')} Bank Details:</strong></p>
+                            {
+                                ''.join(
+                                    f"<p>{key.replace('_', ' ').capitalize()}: {value or 'N/A'}</p>"
+                                    for key, value in profile_data['bankingDetails'].get('details', {}).items()
+                                ) if 'details' in profile_data['bankingDetails'] else '<p>No banking details available.</p>'
+                            }
+                        </div>
             </div>
             <div class="footer">
                 <p><strong>Disclaimer:</strong></p>

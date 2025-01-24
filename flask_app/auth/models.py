@@ -43,6 +43,7 @@ class User:
     @staticmethod
     def find_by_username(username):
         print('Attempting to find user by username...')
+        print(list(users_db.find()))
         user_data = users_db.find_one({'username': username}, {'username': 1, 'password_hash': 1, 'user_id': 1, 'role': 1, 'permissions': 1})
         print('User data retrieved:', user_data)
         if user_data:

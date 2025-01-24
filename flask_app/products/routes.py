@@ -6,7 +6,7 @@ import threading
 import uuid
 from datetime import datetime
 from config import Config
-from database.db import profile_db, transactions_db, products_db, orders_db, settings_db, pending_transactions_db, logs_db, client
+from database.db import  profile_db,    transactions_db, products_db, offers_db,suppliers_db,purchase_orders_db, orders_db, settings_db, pending_transactions_db,logs_db#, client
 from gridfs import GridFS
 from PIL import Image
 from io import BytesIO
@@ -17,6 +17,7 @@ import os
 db_lock = threading.Lock()
 
 products_bp = Blueprint('products', __name__)
+purchase_orders_bp = Blueprint('purchase-orders', __name__)
 
 # Initialize GridFS for image storage
 fs = GridFS(products_db.database)
@@ -326,6 +327,7 @@ def update_product(user_data, product_id):
         if not check_ownership(user_id, product_id):
             log_action(user_id, "update_product_unauthorized", {"product_id": product_id})
             return jsonify({"message": "Unauthorized to update this product"}), 403
+        
 
         product_data = request.json
         print('Product data to update:', product_data)  # Debug statement
@@ -459,3 +461,808 @@ def decrease_product_quantity(user_data, product_id):
         print(f'Error decreasing quantity for product ID {product_id}:', str(e))  # Debug statement
         log_action(user_id, "decrease_product_quantity_error", {"error": str(e)})
         return jsonify({"message": "Error decreasing product quantity"}), 500
+
+
+@products_bp.route('/offers', methods=['POST'])
+@login_required
+def create_offer(user_data):
+    print('POST /offers called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required to create an offer"}), 400
+        
+        offer_data = request.json
+        print('Offer data received:', offer_data)  # Debug statement
+        
+        # Add a unique offer ID and associate it with the user
+        offer_data['offer_id'] = str(uuid.uuid4())
+        offer_data['user_id'] = user_id
+
+
+
+        # Insert the offer into the database
+        with db_lock:
+            insert_result = offers_db.insert_one(offer_data)
+        
+        print('Offer created with ID:', offer_data['offer_id'])  # Debug statement
+        log_action(user_id, "create_offer", offer_data)
+        if '_id' in offer_data:
+            del offer_data['_id']
+
+
+        return jsonify(offer_data), 200
+    except Exception as e:
+        print('Error creating offer:', str(e))  # Debug statement
+        log_action(user_id, "create_offer_error", {"error": str(e)})
+        return jsonify({"message": "Error creating offer"}), 500
+
+@products_bp.route('/offers/<int:offer_id>', methods=['GET'])
+@login_required
+def get_offer_by_id(user_data, offer_id):
+    print(f'GET /offers/{offer_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        # Fetch the offer by ID
+        offer = offers_db.find_one({"id": int(offer_id), "user_id": user_id})
+
+        if not offer:
+            return jsonify({"message": "Offer not found"}), 404
+
+        # Convert ObjectId to string for JSON serialization
+        offer['_id'] = str(offer['_id'])
+
+        print('Offer retrieved:', offer)  # Debug statement
+        log_action(user_id, "get_offer_by_id", {"id": offer_id})
+        return jsonify(offer), 200
+    except Exception as e:
+        print(f'Error retrieving offer {offer_id}:', str(e))  # Debug statement
+        log_action(user_id, "get_offer_by_id_error", {"error": str(e), "id": offer_id})
+        return jsonify({"message": "Error retrieving offer"}), 500
+
+
+@products_bp.route('/offers/paginated', methods=['GET'])
+@login_required
+def get_paginated_offers(user_data):
+    print('GET /offers/paginated called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        # Extract pagination parameters
+        page = int(request.args.get('page', 1))  # Default to page 1
+        page_size = int(request.args.get('pageSize', 10))  # Default page size of 10
+
+        # Validate pagination inputs
+        if page < 1 or page_size < 1:
+            return jsonify({"message": "Page and pageSize must be greater than 0"}), 400
+
+        # Calculate the number of documents to skip
+        skip = (page - 1) * page_size
+
+        # Fetch paginated offers from the database
+        offers_cursor = offers_db.find({"user_id": user_id}).skip(skip).limit(page_size)
+        offers = list(offers_cursor)
+
+        # Convert ObjectId to string for JSON serialization
+        for offer in offers:
+            offer['_id'] = str(offer['_id'])
+
+        # Fetch total count of offers for the user
+        total_count = offers_db.count_documents({"user_id": user_id})
+        total_pages = (total_count + page_size - 1) // page_size  # Calculate total pages
+
+        print(f'Retrieved {len(offers)} offers for page {page}')  # Debug statement
+        log_action(user_id, "get_paginated_offers", {
+            "page": page,
+            "page_size": page_size,
+            "total_count": total_count,
+        })
+
+        # Return the paginated response
+        return jsonify({
+            "offers": offers,
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }), 200
+    except Exception as e:
+        print('Error retrieving paginated offers:', str(e))  # Debug statement
+        log_action(user_data.get('user_id'), "get_paginated_offers_error", {"error": str(e)})
+        return jsonify({"message": "Error retrieving offers", "error": str(e)}), 500
+
+
+@products_bp.route('/offers/<int:offer_id>', methods=['PUT'])
+@login_required
+def update_offer(user_data, offer_id):
+    print(f'PUT /offers/{offer_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        
+        # Check if the offer exists and belongs to the user
+        offer = offers_db.find_one({"id": int(offer_id), "user_id": user_id})
+        if not offer:
+            return jsonify({"message": "Offer not found or unauthorized"}), 404
+
+        # Get the updated data from the request
+        updated_offer_data = request.json
+        print('Updated offer data:', updated_offer_data)  # Debug statement
+
+        if '_id' in updated_offer_data:
+            del updated_offer_data['_id']
+
+        
+        # Update the offer in the database
+        offers_db.update_one(
+            {"id": int(offer_id), "user_id": user_id},
+            {"$set": updated_offer_data}
+        )
+
+        print(f'Offer with ID {offer_id} updated successfully')  # Debug statement
+        log_action(user_id, "update_offer", {"id": offer_id, "updated_data": updated_offer_data})
+
+        return jsonify({"message": "Offer updated successfully"}), 200
+    except Exception as e:
+        print(f'Error updating offer with ID {offer_id}:', str(e))  # Debug statement
+        log_action(user_data.get('user_id'), "update_offer_error", {"error": str(e), "offer_id": offer_id})
+        return jsonify({"message": "Error updating offer", "error": str(e)}), 500
+
+@products_bp.route('/offers/<int:offer_id>', methods=['DELETE'])
+@login_required
+def delete_offer(user_data, offer_id):
+    print(f'DELETE /offers/{offer_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        
+
+        # Check if the offer exists and belongs to the user
+        offer = offers_db.find_one({"id": int(offer_id), "user_id": user_id})
+        if not offer:
+            return jsonify({"message": "Offer not found or unauthorized"}), 404
+
+        # Delete the offer
+        offers_db.delete_one({"id": int(offer_id), "user_id": user_id})
+        print(f'Offer with ID {offer_id} deleted successfully')  # Debug statement
+        log_action(user_id, "delete_offer", {"id": offer_id})
+
+        return jsonify({"message": "Offer deleted successfully"}), 200
+    except Exception as e:
+        print(f'Error deleting offer with ID {offer_id}:', str(e))  # Debug statement
+        log_action(user_data.get('user_id'), "delete_offer_error", {"error": str(e), "id": offer_id})
+        return jsonify({"message": "Error deleting offer", "error": str(e)}), 500
+
+
+
+@products_bp.route('/products/bulk-update', methods=['POST'])
+@login_required
+def bulk_update_products(user_data):
+    """
+    Bulk update product quantities and associate with suppliers.
+    """
+    print('POST /products/bulk-update called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+        
+        bulk_data = request.json
+        if not isinstance(bulk_data, list):
+            return jsonify({"message": "Invalid payload format. Expected a list of products."}), 400
+        
+        with db_lock:
+            with client.start_session() as session:
+                for item in bulk_data:
+                    product_id = item.get('id')
+                    quantity = item.get('quantity', 0)
+                    supplier_id = item.get('supplier_id')  # Optional supplier ID
+
+                    if not product_id or quantity is None:
+                        return jsonify({"message": "Each item must contain 'id' and 'quantity' fields."}), 400
+                    
+                    # Fetch the existing product
+                    product = products_db.find_one({"id": int(product_id), "user_id": user_id}, session=session)
+                    if not product:
+                        print(f"Product with ID {product_id} not found.")  # Debug statement
+                        continue
+                    
+                    # Update quantity and supplier information
+                    new_quantity = product.get('quantity', 0) + quantity
+                    update_fields = {"quantity": new_quantity}
+                    if supplier_id:
+                        update_fields["last_supplier_id"] = supplier_id
+
+                    products_db.update_one(
+                        {"id": int(product_id), "user_id": user_id},
+                        {"$set": update_fields},
+                        session=session
+                    )
+                    print(f"Updated product ID {product_id} with quantity {new_quantity} and supplier {supplier_id}.")  # Debug
+
+        log_action(user_id, "bulk_update_products", {"count": len(bulk_data)})
+        return jsonify({"message": "Bulk update completed successfully."}), 200
+    except Exception as e:
+        print(f"Error in bulk update: {e}")  # Debug statement
+        log_action(user_data.get('user_id'), "bulk_update_error", {"error": str(e)})
+        return jsonify({"message": "Error in bulk update", "error": str(e)}), 500
+
+
+
+
+
+# Supplier Management Functions (Integrated into products_bp)
+
+# Add a new supplier
+@products_bp.route('/suppliers', methods=['POST'])
+@login_required
+def add_supplier(user_data):
+    """
+    Add a new supplier.
+    """
+    print('POST /suppliers called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        supplier_data = request.json
+        supplier_data['supplier_id'] = str(uuid.uuid4())  # Generate unique supplier ID
+        supplier_data['user_id'] = user_id  # Associate supplier with the user
+        supplier_data['created_at'] = datetime.utcnow()
+
+        
+
+        with db_lock:
+            result = suppliers_db.insert_one(supplier_data)  # Insert supplier into DB
+            supplier_data['_id'] = str(result.inserted_id)  # Convert ObjectId to string
+
+
+        log_action(user_id, "add_supplier", supplier_data)
+        return jsonify({"message": "Supplier added successfully", "supplier": supplier_data}), 200
+    except Exception as e:
+        print(f"Error adding supplier: {e}")  # Debug
+        log_action(user_id, "add_supplier_error", {"error": str(e)})
+        return jsonify({"message": "Error adding supplier", "error": str(e)}), 500
+
+# Get all suppliers
+@products_bp.route('/suppliers', methods=['GET'])
+@login_required
+def get_suppliers(user_data):
+    """
+    Get a list of all suppliers for the user.
+    """
+    print('GET /suppliers called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        with db_lock:
+            suppliers = list(suppliers_db.find({"user_id": user_id}))
+
+        for supplier in suppliers:
+            supplier['_id'] = str(supplier['_id'])  # Convert ObjectId to string
+
+        log_action(user_id, "get_suppliers", {"count": len(suppliers)})
+        return jsonify( suppliers), 200
+    except Exception as e:
+        print(f"Error fetching suppliers: {e}")  # Debug
+        log_action(user_id, "get_suppliers_error", {"error": str(e)})
+        return jsonify({"message": "Error fetching suppliers", "error": str(e)}), 500
+
+
+@products_bp.route('/suppliers/paginated', methods=['GET'])
+@login_required
+def get_paginated_suppliers(user_data):
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('pageSize', 100))
+    user_id = user_data.get('user_id')
+
+    if not user_id:
+        return jsonify({"message": "User ID is required"}), 400
+
+    skip = (page - 1) * page_size
+    total_count = suppliers_db.count_documents({"user_id": user_id})  # Total number of suppliers
+    suppliers = list(suppliers_db.find({"user_id": user_id}).skip(skip).limit(page_size))
+    for supplier in suppliers:
+        supplier['_id'] = str(supplier['_id'])
+
+    return jsonify({
+        "suppliers": suppliers,
+        "total_count": total_count,
+        "page": page,
+        "page_size": page_size
+    }), 200
+
+# Get a specific supplier by ID
+@products_bp.route('/suppliers/<string:supplier_id>', methods=['GET'])
+@login_required
+def get_supplier_by_id(user_data, supplier_id):
+    """
+    Get a specific supplier by ID.
+    """
+    print(f'GET /suppliers/{supplier_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        supplier = suppliers_db.find_one({"supplier_id": supplier_id, "user_id": user_id})
+        if not supplier:
+            return jsonify({"message": "Supplier not found"}), 404
+
+        supplier['_id'] = str(supplier['_id'])  # Convert ObjectId to string
+
+        log_action(user_id, "get_supplier_by_id", {"supplier_id": supplier_id})
+        return jsonify(supplier), 200
+    except Exception as e:
+        print(f"Error fetching supplier {supplier_id}: {e}")  # Debug
+        log_action(user_id, "get_supplier_by_id_error", {"error": str(e), "supplier_id": supplier_id})
+        return jsonify({"message": "Error fetching supplier", "error": str(e)}), 500
+
+# Update a supplier
+@products_bp.route('/suppliers/<string:supplier_id>', methods=['PUT'])
+@login_required
+def update_supplier(user_data, supplier_id):
+    """
+    Update a supplier's details.
+    """
+    print(f'PUT /suppliers/{supplier_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        supplier_data = request.json
+        if '_id' in supplier_data:
+            del supplier_data['_id']  # Ensure _id is not updated
+
+        with db_lock:
+            result = suppliers_db.update_one(
+                {"supplier_id": supplier_id, "user_id": user_id},
+                {"$set": supplier_data}
+            )
+
+        if result.matched_count == 0:
+            return jsonify({"message": "Supplier not found or unauthorized"}), 404
+
+        log_action(user_id, "update_supplier", {"supplier_id": supplier_id, "updates": supplier_data})
+        return jsonify({"message": "Supplier updated successfully"}), 200
+    except Exception as e:
+        print(f"Error updating supplier {supplier_id}: {e}")  # Debug
+        log_action(user_id, "update_supplier_error", {"error": str(e), "supplier_id": supplier_id})
+        return jsonify({"message": "Error updating supplier", "error": str(e)}), 500
+
+# Delete a supplier
+@products_bp.route('/suppliers/<string:supplier_id>', methods=['DELETE'])
+@login_required
+def delete_supplier(user_data, supplier_id):
+    """
+    Delete a supplier.
+    """
+    print(f'DELETE /suppliers/{supplier_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        with db_lock:
+            result = suppliers_db.delete_one({"supplier_id": supplier_id, "user_id": user_id})
+
+        if result.deleted_count == 0:
+            return jsonify({"message": "Supplier not found or unauthorized"}), 404
+
+        log_action(user_id, "delete_supplier", {"supplier_id": supplier_id})
+        return jsonify({"message": "Supplier deleted successfully"}), 200
+    except Exception as e:
+        print(f"Error deleting supplier {supplier_id}: {e}")  # Debug
+        log_action(user_id, "delete_supplier_error", {"error": str(e), "supplier_id": supplier_id})
+        return jsonify({"message": "Error deleting supplier", "error": str(e)}), 500
+
+
+
+# Create a purchase order
+@purchase_orders_bp.route('/purchase-orders', methods=['POST'])
+@login_required
+def create_purchase_order(user_data):
+    """
+    Create a new purchase order.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        order_data = request.json
+        
+        # Validate order data
+        #if not order_data.get('supplier_id') or not order_data.get('products'):
+        #    return jsonify({"message": "Supplier ID and products are required"}), 400
+        
+        # Add metadata
+        order_data['order_id'] = str(uuid.uuid4())
+        order_data['user_id'] = user_id
+        order_data['created_at'] = datetime.utcnow()
+        order_data['status'] = 'Pending'  # Initial status
+        
+        # Save to DB
+        with db_lock:
+            purchase_orders_db.insert_one(order_data)
+
+        
+        order_data['_id'] = str(order_data['_id'])
+        
+        return jsonify({"message": "Purchase order created", "order": order_data}), 200
+    except Exception as e:
+        return jsonify({"message": "Error creating purchase order", "error": str(e)}), 500
+
+
+'''
+
+@purchase_orders_bp.route('/purchase-orders/<string:order_id>/status', methods=['PATCH'])
+@login_required
+def update_purchase_order_status(user_data, order_id):
+    """
+    Update the status of a purchase order with enhanced rollback and validation logic.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        data = request.json
+        new_status = data.get('status')
+
+        if not new_status:
+            return jsonify({"message": "Status is required"}), 400
+
+        
+        # Allowed status transitions
+        allowed_transitions = {
+            "Pending": ["Pending_Approval", "Cancelled"],
+            "Pending_Approval": ["Approved", "Cancelled"],
+            "Approved": ["Ordered", "Cancelled"],
+            "Ordered": ["In_Transit", "Cancelled"],
+            "In_Transit": ["Received", "Cancelled"],
+            "Received": ["Completed", "Cancelled"],
+            "Completed": [],  # Rollback allowed only to 'Received'
+            "Cancelled": []  # No transitions from Cancelled
+        }
+
+        # Fetch order
+        order = purchase_orders_db.find_one({"order_id": order_id, "user_id": user_id})
+        if not order:
+            return jsonify({"message": "Order not found"}), 404
+
+        current_status = order.get("status")
+        print('hi...',current_status, new_status)
+        # Validate status transition
+        if new_status not in allowed_transitions.get(current_status, []):
+            return jsonify({
+                "message": f"Invalid status transition from '{current_status}' to '{new_status}'"
+            }), 400
+        print('hi...')
+        # Inventory adjustments
+        if current_status == "Completed" and new_status == "Received":
+            # Rollback inventory
+            for product in order.get('items', []):
+                product_id = product.get('id')
+                quantity_to_rollback = product.get('quantity', 0)
+
+                product_data = products_db.find_one({"id": product_id, "user_id": user_id})
+                if not product_data:
+                    return jsonify({"message": f"Product {product_id} not found"}), 404
+
+                current_stock = product_data.get("quantity", 0)
+
+                if current_stock < quantity_to_rollback:
+                    return jsonify({
+                        "message": f"Insufficient stock to rollback product {product_id}",
+                        "current_stock": current_stock,
+                        "required_rollback": quantity_to_rollback
+                    }), 400
+
+                # Perform rollback
+                with db_lock:
+                    products_db.update_one(
+                        {"id": product_id, "user_id": user_id},
+                        {"$inc": {"quantity": -quantity_to_rollback}}
+                    )
+
+        elif current_status == "Received" and new_status == "Completed":
+            # Add products to inventory
+            for product in order.get('products', []):
+                product_id = product.get('id')
+                quantity = product.get('quantity', 0)
+                with db_lock:
+                    products_db.update_one(
+                        {"id": product_id, "user_id": user_id},
+                        {"$inc": {"quantity": quantity}}
+                    )
+
+        # Update the status
+        with db_lock:
+            purchase_orders_db.update_one(
+                {"order_id": order_id},
+                {"$set": {"status": new_status}}
+            )
+
+        # Log the status change
+        log_action(user_id, "update_purchase_order_status", {
+            "order_id": order_id,
+            "from_status": current_status,
+            "to_status": new_status
+        })
+
+        return jsonify({"message": f"Order status updated to {new_status}"}), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error updating order status", "error": str(e)}), 500
+'''
+
+@purchase_orders_bp.route('/purchase-orders/<string:order_id>/status', methods=['PATCH'])
+@login_required
+def update_purchase_order_status(user_data, order_id):
+    """
+    Update the status of a purchase order with enhanced rollback and validation logic,
+    including handling of group products.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        data = request.json
+        new_status = data.get('status')
+
+        if not new_status:
+            return jsonify({"message": "Status is required"}), 400
+
+        # Allowed status transitions
+        allowed_transitions = {
+            "Pending": ["Pending_Approval", "Cancelled"],
+            "Pending_Approval": ["Approved", "Cancelled"],
+            "Approved": ["Ordered", "Cancelled"],
+            "Ordered": ["In_Transit", "Cancelled"],
+            "In_Transit": ["Received", "Cancelled"],
+            "Received": ["Completed", "Cancelled"],
+            "Completed": [],  # Rollback allowed only to 'Received'
+            "Cancelled": []  # No transitions from Cancelled
+        }
+
+        # Fetch order
+        order = purchase_orders_db.find_one({"order_id": order_id, "user_id": user_id})
+        if not order:
+            return jsonify({"message": "Order not found"}), 404
+
+        current_status = order.get("status")
+
+        # Validate status transition
+        if new_status not in allowed_transitions.get(current_status, []):
+            return jsonify({
+                "message": f"Invalid status transition from '{current_status}' to '{new_status}'"
+            }), 400
+
+        # Inventory adjustments
+        if current_status == "Completed" and new_status == "Received":
+            # Rollback inventory
+            for product in order.get('items', []):
+                product_id = product.get('id')
+                quantity_to_rollback = product.get('quantity', 0)
+
+                product_data = products_db.find_one({"id": product_id, "user_id": user_id})
+                if not product_data:
+                    return jsonify({"message": f"Product {product_id} not found"}), 404
+
+                current_stock = product_data.get("quantity", 0)
+
+                if current_stock < quantity_to_rollback:
+                    return jsonify({
+                        "message": f"Insufficient stock to rollback product {product_id}",
+                        "current_stock": current_stock,
+                        "required_rollback": quantity_to_rollback
+                    }), 400
+
+                # Perform rollback
+                with db_lock:
+                    products_db.update_one(
+                        {"id": product_id, "user_id": user_id},
+                        {"$inc": {"quantity": -quantity_to_rollback}}
+                    )
+
+        elif current_status == "Received" and new_status == "Completed":
+            # Add products to inventory
+            for product in order.get('products', []):
+                product_id = product.get('id')
+                quantity = product.get('quantity', 0)
+
+                if product.get('isGroupProduct', False):
+                    # Handle group product components
+                    for group_item in product.get('groupDetails', []):
+                        group_item_id = group_item.get('id')
+                        group_item_quantity = group_item.get('quantity', 0) * quantity  # Scale by group quantity
+                        with db_lock:
+                            products_db.update_one(
+                                {"id": group_item_id, "user_id": user_id},
+                                {"$inc": {"quantity": group_item_quantity}}
+                            )
+                else:
+                    # Handle regular product
+                    with db_lock:
+                        products_db.update_one(
+                            {"id": product_id, "user_id": user_id},
+                            {"$inc": {"quantity": quantity}}
+                        )
+
+        # Update the status
+        with db_lock:
+            purchase_orders_db.update_one(
+                {"order_id": order_id},
+                {"$set": {"status": new_status}}
+            )
+
+        # Log the status change
+        log_action(user_id, "update_purchase_order_status", {
+            "order_id": order_id,
+            "from_status": current_status,
+            "to_status": new_status
+        })
+
+        return jsonify({"message": f"Order status updated to {new_status}"}), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error updating order status", "error": str(e)}), 500
+
+
+# Get purchase orders
+@purchase_orders_bp.route('/purchase-orders', methods=['GET'])
+@login_required
+def get_purchase_orders(user_data):
+    """
+    Get all purchase orders for the user.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        orders = list(purchase_orders_db.find({"user_id": user_id}))
+        for order in orders:
+            order['_id'] = str(order['_id'])  # Convert ObjectId to string
+        return jsonify(orders), 200
+    except Exception as e:
+        return jsonify({"message": "Error fetching orders", "error": str(e)}), 500
+
+# Get a specific purchase order by ID
+@purchase_orders_bp.route('/purchase-orders/<string:order_id>', methods=['GET'])
+@login_required
+def get_purchase_order_by_id(user_data, order_id):
+    """
+    Get a purchase order by its ID.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        order = purchase_orders_db.find_one({"order_id": order_id, "user_id": user_id})
+        if not order:
+            return jsonify({"message": "Order not found"}), 404
+        order['_id'] = str(order['_id'])  # Convert ObjectId to string
+        return jsonify(order), 200
+    except Exception as e:
+        return jsonify({"message": "Error fetching order", "error": str(e)}), 500
+
+# Delete a purchase order
+@purchase_orders_bp.route('/purchase-orders/<string:order_id>', methods=['DELETE'])
+@login_required
+def delete_purchase_order(user_data, order_id):
+    """
+    Delete a purchase order.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        result = purchase_orders_db.delete_one({"order_id": order_id, "user_id": user_id})
+        if result.deleted_count == 0:
+            return jsonify({"message": "Order not found"}), 404
+        return jsonify({"message": "Order deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"message": "Error deleting order", "error": str(e)}), 500
+
+
+@purchase_orders_bp.route('/purchase-orders/paginated', methods=['GET'])
+@login_required
+def get_paginated_purchase_orders(user_data):
+    """
+    Fetch paginated purchase orders for the user.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        if not user_id:
+            return jsonify({"message": "User ID is required"}), 400
+
+        # Extract pagination parameters from query
+        page = int(request.args.get('page', 1))  # Default to page 1
+        page_size = int(request.args.get('pageSize', 10))  # Default to 10 orders per page
+
+        # Validate pagination parameters
+        if page < 1 or page_size < 1:
+            return jsonify({"message": "Page and pageSize must be greater than 0"}), 400
+
+        # Calculate number of documents to skip
+        skip = (page - 1) * page_size
+
+        # Fetch purchase orders for the user
+        with db_lock:
+            orders_cursor = purchase_orders_db.find({"user_id": user_id}).skip(skip).limit(page_size)
+            orders = list(orders_cursor)
+
+        # Fetch total count of orders
+        total_count = purchase_orders_db.count_documents({"user_id": user_id})
+        total_pages = (total_count + page_size - 1) // page_size  # Calculate total pages
+
+        # Convert ObjectId to string for JSON serialization
+        for order in orders:
+            order['_id'] = str(order['_id'])
+
+        # Log the action
+        log_action(user_id, "get_paginated_purchase_orders", {
+            "page": page,
+            "page_size": page_size,
+            "total_count": total_count
+        })
+
+        # Return paginated response
+        return jsonify({
+            "orders": orders,
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }), 200
+
+    except Exception as e:
+        log_action(user_data.get('user_id'), "get_paginated_purchase_orders_error", {"error": str(e)})
+        return jsonify({"message": "Error fetching paginated purchase orders", "error": str(e)}), 500
+
+# Update a purchase order
+@purchase_orders_bp.route('/purchase-orders/<string:order_id>', methods=['PUT'])
+@login_required
+def update_purchase_order(user_data, order_id):
+    """
+    Update an entire purchase order.
+    """
+    try:
+        user_id = user_data.get('user_id')
+        update_data = request.json
+
+        # Fetch the existing order
+        existing_order = purchase_orders_db.find_one({"order_id": order_id, "user_id": user_id})
+        if not existing_order:
+            return jsonify({"message": "Purchase order not found"}), 404
+
+        # Merge the updates
+        updated_order = {**existing_order, **update_data}
+
+        # Ensure immutable fields are not updated
+        updated_order["order_id"] = existing_order["order_id"]
+        updated_order["user_id"] = existing_order["user_id"]
+        updated_order["created_at"] = existing_order["created_at"]
+        print("hi..",updated_order)
+        if '_id' in updated_order:
+            del updated_order['_id']
+        # Update in the database
+        with db_lock:
+            purchase_orders_db.update_one(
+                {"order_id": order_id, "user_id": user_id},
+                {"$set": updated_order}
+            )
+        
+        #updated_order['_id'] = str(updated_order['_id'])
+        
+        # Log the action
+        log_action(user_id, "update_purchase_order", {
+            "order_id": order_id,
+            "updated_fields": update_data
+        })
+        
+
+        return jsonify({"message": "Purchase order updated successfully", "order": updated_order}), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error updating purchase order", "error": str(e)}), 500

@@ -26,7 +26,7 @@ def get_profile(user_data):
             profile = profile_db.find_one({"user_id": user_id})
         if profile:
             profile['_id'] = str(profile['_id'])  # Convert ObjectId to string
-            print('Profile data retrieved:', profile)  # Debug statement
+            #print('Profile data retrieved:', profile)  # Debug statement
             return jsonify(profile)
         else:
             print('No profile found')  # Debug statement
@@ -43,7 +43,7 @@ def update_profile(user_data):
         user_id = user_data.get('user_id')
         profile_data = request.json
         profile_data['user_id'] = user_id  # Associate profile with the user
-        print('Profile data received:', profile_data)  # Debug statement
+        #print('Profile data received:', profile_data)  # Debug statement
         if '_id' in profile_data:
               del profile_data['_id']
 
@@ -146,6 +146,78 @@ def release_product_quantity(product_id, quantity):
         products_db.update_one({"id": int(product_id)}, {"$set": {"reserved_quantity": max(0, new_reserved_quantity)}})
     print("Product quantity released successfully")  # Debug statement
     return product
+
+
+@profile_bp.route('/pendingTransactions', methods=['POST'], endpoint='add_pending_transaction')
+@login_required
+def add_pending_transaction(user_data):
+    """
+    Add a pending transaction and reserve quantities for regular and group products.
+    """
+    print('POST /pendingTransactions called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        transaction_data = request.json
+        transaction_data['user_id'] = user_id  # Associate transaction with the user
+        print('Pending transaction data received:', transaction_data)  # Debug statement
+
+        # Reserve quantities for each product in the transaction
+        for item in transaction_data.get('cart', []):
+            if item.get('isGroupProduct', False):
+                # Reserve quantities for group product components
+                for group_item in item.get('groupDetails', []):
+                    reserve_product_quantity(group_item['id'], float(group_item['quantity']) * float(item['quantity']))
+            else:
+                # Reserve quantities for regular product
+                reserve_product_quantity(item['id'], float(item['quantity']))
+
+        with db_lock:
+            result = pending_transactions_db.insert_one(transaction_data)
+            transaction_data['_id'] = str(result.inserted_id)
+
+        print('Pending transaction added successfully')  # Debug statement
+        return jsonify(transaction_data), 200
+    except Exception as e:
+        print('Error adding pending transaction:', str(e))  # Debug statement
+        return jsonify({"message": "Error adding pending transaction"}), 500
+
+@profile_bp.route('/pendingTransactions/<string:transaction_id>', methods=['DELETE'], endpoint='delete_pending_transaction')
+@login_required
+def delete_pending_transaction(user_data, transaction_id):
+    """
+    Delete a pending transaction and release reserved quantities for regular and group products.
+    """
+    print(f'DELETE /pendingTransactions/{transaction_id} called')  # Debug statement
+    try:
+        user_id = user_data.get('user_id')
+        with db_lock:
+            transaction = pending_transactions_db.find_one({"id": int(transaction_id)})
+            print(transaction)
+
+        if transaction and transaction.get('user_id') == user_id:
+            # Release reserved quantities for each product in the transaction
+            for item in transaction.get('cart', []):
+                if item.get('isGroupProduct', False):
+                    # Release quantities for group product components
+                    for group_item in item.get('groupDetails', []):
+                        release_product_quantity(group_item['id'], float(group_item['quantity']) * float(item['quantity']))
+                else:
+                    # Release quantities for regular product
+                    release_product_quantity(item['id'], float(item['quantity']))
+
+            with db_lock:
+                pending_transactions_db.delete_one({"id": int(transaction_id)})
+
+            print(f'Pending transaction with ID {transaction_id} deleted')  # Debug statement
+            return jsonify({"message": "Pending transaction deleted successfully"}), 200
+        else:
+            return jsonify({"message": "Unauthorized to delete this transaction"}), 403
+    except Exception as e:
+        print(f'Error deleting pending transaction with ID {transaction_id}:', str(e))  # Debug statement
+        return jsonify({"message": "Error deleting pending transaction"}), 500
+
+
+'''
 @profile_bp.route('/pendingTransactions', methods=['POST'], endpoint='add_pending_transaction')
 @login_required
 def add_pending_transaction(user_data):
@@ -196,45 +268,6 @@ def delete_pending_transaction(user_data, transaction_id):
         print(f'Error deleting pending transaction with ID {transaction_id}:', str(e))  # Debug statement
         return jsonify({"message": "Error deleting pending transaction"}), 500
 
-'''
-@profile_bp.route('/pendingTransactions', methods=['POST'], endpoint='add_pending_transaction')
-@login_required
-def add_pending_transaction(user_data):
-    print('POST /pendingTransactions called')  # Debug statement
-    try:
-        user_id = user_data.get('user_id')
-        transaction_data = request.json
-        transaction_data['user_id'] = user_id  # Associate transaction with the user
-        print('Pending transaction data received:', transaction_data)  # Debug statement
-        with db_lock:
-            result = pending_transactions_db.insert_one(transaction_data)
-            transaction_data['_id'] = str(result.inserted_id)
-        print('Pending transaction added successfully')  # Debug statement
-        return jsonify(transaction_data), 200
-    except Exception as e:
-        print('Error adding pending transaction:', str(e))  # Debug statement
-        return jsonify({"message": "Error adding pending transaction"}), 500
-
-@profile_bp.route('/pendingTransactions/<string:transaction_id>', methods=['DELETE'], endpoint='delete_pending_transaction')
-@login_required
-def delete_pending_transaction(user_data, transaction_id):
-    print(f'DELETE /pendingTransactions/{transaction_id} called')  # Debug statement
-    try:
-        user_id = user_data.get('user_id')
-        with db_lock:
-            transaction = pending_transactions_db.find_one({"id": int(transaction_id)})
-            print(transaction)
-        
-        if transaction and transaction.get('user_id') == user_id:
-            with db_lock:
-                pending_transactions_db.delete_one({"id": int(transaction_id)})
-            print(f'Pending transaction with ID {transaction_id} deleted')  # Debug statement
-            return jsonify({"message": "Pending transaction deleted successfully"}), 200
-        else:
-            return jsonify({"message": "Unauthorized to delete this transaction"}), 403
-    except Exception as e:
-        print(f'Error deleting pending transaction with ID {transaction_id}:', str(e))  # Debug statement
-        return jsonify({"message": "Error deleting pending transaction"}), 500
 '''
 # Save or update a pending transaction
 @profile_bp.route('/pendingTransactions/save', methods=['POST'], endpoint='save_pending_transaction')

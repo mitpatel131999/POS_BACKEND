@@ -3,6 +3,7 @@ from auth.models import User
 from auth.utils import authenticate, create_jwt, verify_jwt, login_required
 
 from werkzeug.security import generate_password_hash, check_password_hash 
+from database.db import users_db, logs_db#, client
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -51,6 +52,7 @@ def login():
 @login_required
 def change_password(user_data):  # Note that user_data is now passed as an argument
     # Get the new password from the JSON payload
+    user_id = user_data.get('user_id')
     data = request.json
     new_password = data.get('new_password')
    
@@ -69,7 +71,7 @@ def change_password(user_data):  # Note that user_data is now passed as an argum
     #user = User(user_data['username'], new_password_hash, user_data['role'], user_data['business_id'])
     #user.save() 
     # Update the user's password in the database
-    users_db.update_one({'username': user_data['username']}, {'$set': {'password_hash': new_password_hash}})
+    users_db.update_one({'user_id': user_id}, {'$set': {'password_hash': new_password_hash}})
     print('444')
     return jsonify({"message": "Password changed successfully"}), 200
 
